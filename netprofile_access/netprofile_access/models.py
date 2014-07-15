@@ -153,7 +153,8 @@ class AccessEntity(Entity):
 				),
 				'easy_search'  : ('nick',),
 				'extra_data'    : ('grid_icon',),
-				'detail_pane'  : ('netprofile_core.views', 'dpane_simple')
+				'detail_pane'  : ('netprofile_core.views', 'dpane_simple'),
+				'create_wizard' : SimpleWizard(title=_('Add new access entity'))
 			}
 		}
 	)
