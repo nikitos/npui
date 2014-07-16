@@ -126,9 +126,9 @@ def edit_record(request):
 			if record.domain_id in user_domains:
 				record.name = request.POST.get('name', None)
 				record.content = request.POST.get('content', None)
-				record.rtype = request.POST.get('type', None)
-				record.ttl = int(request.POST.get('ttl', None))
-				record.prio = int(request.POST.get('prio', None))
+				record.rtype = request.POST.get('rtype', None)
+				record.ttl = None if request.POST.get('ttl', None) == '' else request.POST.get('ttl', None);
+				record.prio = None if request.POST.get('prio', None) == '' else request.POST.get('prio', None);
 	sess.flush()
 	return HTTPSeeOther(location=request.route_url('pdns.cl.domains', _query=(('sort', 'asc'),)))
 
@@ -152,11 +152,52 @@ def create_record(request):
 	else:
 		rectype = request.POST.get('type', None)
 		if rectype == "domain":
-			newdomain = PDNSDomain(name=request.POST.get('hostName', None), master=request.POST.get('hostValue', None), dtype=request.POST.get('hostType', None), account=request.POST.get('user', None))
+			name = request.POST.get('hostName', None)
+			domain_clash = sess.query(func.count('*'))\
+					.select_from(PDNSDomain)\
+					.filter(PDNSDomain.name == name)\
+					.scalar()
+			if domain_clash > 0:
+				request.session.flash({
+					'text' : loc.translate(_('Domain already exists')),
+					'class' : 'danger'
+					})
+				return HTTPSeeOther(location=request.route_url('pdns.cl.domains'))
+			ns1 = cfg.get('netprofile.client.pdns.ns1')
+			ns2 = cfg.get('netprofile.client.pdns.ns2')
+			newdomain = PDNSDomain(name=name, master='', dtype='NATIVE', account=request.POST.get('user', None))
+
+			newsoa = PDNSRecord()
+			newsoa.domain = newdomain
+			newsoa.name = name
+			newsoa.rtype = 'SOA'
+			newsoa.content = ns1
+			newsoa.ttl = 86400
+
+			newns1 = PDNSRecord()
+			newns1.domain = newdomain
+			newns1.name = name
+			newns1.rtype = 'NS'
+			newns1.content = ns1
+			newns1.ttl = 86400
+
+			newns2 = PDNSRecord()
+			newns2.domain = newdomain
+			newns2.name = name
+			newns2.rtype = 'NS'
+			newns2.content = ns2
+			newns2.ttl = 86400
+
 			sess.add(newdomain)
+			sess.add(newsoa)
+			sess.add(newns1)
+			sess.add(newns2)
+
 			sess.flush()
 		elif rectype == "record":
-			newrecord = PDNSRecord(domain_id=int(request.POST.get('domainid', None)), name=request.POST.get('name', None), rtype=request.POST.get('type', None), content=request.POST.get('content', None), ttl=int(request.POST.get('ttl', None)), prio=int(request.POST.get('prio', None)))
+			ttl = None if request.POST.get('ttl', None) == '' else request.POST.get('ttl', None);
+			prio = None if request.POST.get('prio', None) == '' else request.POST.get('prio', None);
+			newrecord = PDNSRecord(domain_id=int(request.POST.get('domainid', None)), name=request.POST.get('name', None), rtype=request.POST.get('rtype', None), content=request.POST.get('content', None), ttl=ttl, prio=prio)
 			sess.add(newrecord)
 			sess.flush()
 		
