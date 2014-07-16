@@ -578,7 +578,7 @@ class PDNSRecord(Base):
 		UInt16(),
 		Comment('Domain ID'),
 		#ForeignKey
-		ForeignKey('pdns_domains.id', name='pdns_records_fk_domain_id'),
+		ForeignKey('pdns_domains.id', name='pdns_records_fk_domain_id',ondelete='CASCADE', onupdate='CASCADE'),
 		nullable=False,
 		info={
 			'header_string' : _('Domain ID')
@@ -616,7 +616,7 @@ class PDNSRecord(Base):
 		)
 	ttl = Column(
 		'ttl',
-		UInt16(),
+		UInt32(),
 		Comment('TTL'),
 		nullable=True,
 		default=None,
@@ -626,7 +626,7 @@ class PDNSRecord(Base):
 		)
 	prio = Column(
 		'prio',
-		UInt16(),
+		UInt32(),
 		Comment('Priority'),
 		nullable=True,
 		default=None,
@@ -674,6 +674,15 @@ class PDNSRecord(Base):
 			'header_string' : _('Authoritative Zone Flag')
 			}
 		)
+	domain = relationship(
+        'PDNSDomain',
+        innerjoin=True,
+		backref=backref(
+			'records',
+			cascade='all, delete-orphan',
+			passive_deletes=True
+		)
+	)
 
 	def __str__(self):
 		return("{0} {1} {2} {3}".format(self.name, self.rtype, self.content, self.ttl))
