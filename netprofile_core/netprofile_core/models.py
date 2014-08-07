@@ -45,6 +45,7 @@ __all__ = [
 	'FileFolderAccessRule',
 	'FileFolder',
 	'File',
+	'FileChunk',
 	'Tag',
 	'LogType',
 	'LogAction',
@@ -62,6 +63,11 @@ __all__ = [
 	'CalendarImport',
 	'Event',
 
+	'HWAddrHexIEEEFunction',
+	'HWAddrHexLinuxFunction',
+	'HWAddrHexWindowsFunction',
+	'HWAddrUnhexFunction',
+
 	'global_setting'
 ]
 
@@ -78,6 +84,7 @@ import base64
 import icalendar
 
 from sqlalchemy import (
+	BINARY,
 	Column,
 	FetchedValue,
 	ForeignKey,
@@ -138,6 +145,7 @@ from netprofile.db.fields import (
 	Int8,
 	IPv4Address,
 	IPv6Address,
+	LargeBLOB,
 	NPBoolean,
 	UInt8,
 	UInt16,
@@ -167,7 +175,13 @@ from netprofile.dav import (
 from netprofile.ext.filters import (
 	SelectFilter
 )
-from netprofile.db.ddl import Comment
+from netprofile.db.ddl import (
+	Comment,
+	CurrentTimestampDefault,
+	SQLFunction,
+	SQLFunctionArgument,
+	Trigger
+)
 
 from pyramid.response import (
 	FileIter,
@@ -388,6 +402,9 @@ class User(Base):
 		Index('users_i_enabled', 'enabled'),
 		Index('users_i_managerid', 'managerid'),
 		Index('users_i_photo', 'photo'),
+		Trigger('after', 'insert', 't_users_ai'),
+		Trigger('after', 'update', 't_users_au'),
+		Trigger('after', 'delete', 't_users_ad'),
 		{
 			'mysql_engine'  : 'InnoDB',
 			'mysql_charset' : 'utf8',
@@ -412,7 +429,7 @@ class User(Base):
 				'easy_search'  : ('login', 'name_family'),
 				'create_wizard' : 
 					Wizard(
-						Step('login', 'pass', 'group', 'email', title=_('New user login')),
+						Step('login', 'pass', 'group', 'email', title=_('New user')),
 						Step('name_family', 'name_given', 'name_middle', 'ipaddr', 'enabled','state',title=_('New user details')),
 						title=_('Add new user')
 					),
@@ -1135,6 +1152,9 @@ class Group(Base):
 		Index('groups_i_parentid', 'parentid'),
 		Index('groups_i_secpolid', 'secpolid'),
 		Index('groups_i_rootffid', 'rootffid'),
+		Trigger('after', 'insert', 't_groups_ai'),
+		Trigger('after', 'update', 't_groups_au'),
+		Trigger('after', 'delete', 't_groups_ad'),
 		{
 			'mysql_engine'  : 'InnoDB',
 			'mysql_charset' : 'utf8',
@@ -2234,7 +2254,7 @@ class DAVLock(Base):
 		Index('dav_locks_i_token', 'token'),
 		Index('dav_locks_i_timeout', 'timeout'),
 		Index('dav_locks_i_fileid', 'fileid'),
-		Index('dav_locks_i_uri', 'uri', mysql_length=767),
+		Index('dav_locks_i_uri', 'uri', mysql_length=255),
 		{
 			'mysql_engine'  : 'InnoDB',
 			'mysql_charset' : 'utf8'
@@ -2448,6 +2468,11 @@ class FileFolder(Base):
 		Index('files_folders_u_folder', 'parentid', 'name', unique=True),
 		Index('files_folders_i_uid', 'uid'),
 		Index('files_folders_i_gid', 'gid'),
+		Trigger('before', 'insert', 't_files_folders_bi'),
+		Trigger('before', 'update', 't_files_folders_bu'),
+		Trigger('after', 'insert', 't_files_folders_ai'),
+		Trigger('after', 'update', 't_files_folders_au'),
+		Trigger('after', 'delete', 't_files_folders_ad'),
 		{
 			'mysql_engine'  : 'InnoDB',
 			'mysql_charset' : 'utf8',
@@ -2551,10 +2576,9 @@ class FileFolder(Base):
 		'mtime',
 		TIMESTAMP(),
 		Comment('Last modification timestamp'),
+		CurrentTimestampDefault(on_update=True),
 		nullable=False,
 #		default=zzz,
-		server_default=func.current_timestamp(),
-		server_onupdate=func.current_timestamp(),
 		info={
 			'header_string' : _('Modified')
 		}
@@ -3108,6 +3132,11 @@ class File(Base):
 		Index('files_def_i_uid', 'uid'),
 		Index('files_def_i_gid', 'gid'),
 		Index('files_def_i_ffid', 'ffid'),
+		Trigger('before', 'insert', 't_files_def_bi'),
+		Trigger('before', 'update', 't_files_def_bu'),
+		Trigger('after', 'insert', 't_files_def_ai'),
+		Trigger('after', 'update', 't_files_def_au'),
+		Trigger('after', 'delete', 't_files_def_ad'),
 		{
 			'mysql_engine'  : 'InnoDB',
 			'mysql_charset' : 'utf8',
@@ -3239,10 +3268,9 @@ class File(Base):
 		'mtime',
 		TIMESTAMP(),
 		Comment('Last modification timestamp'),
+		CurrentTimestampDefault(on_update=True),
 		nullable=False,
 #		default=zzz,
-		server_default=func.current_timestamp(),
-		server_onupdate=func.current_timestamp(),
 		info={
 			'header_string' : _('Modified'),
 			'read_only'     : True
@@ -3292,7 +3320,7 @@ class File(Base):
 		}
 	)
 	data = deferred(Column(
-		LargeBinary(),
+		LargeBLOB(),
 		Comment('Actual file data'),
 		nullable=True,
 		default=None,
@@ -3781,10 +3809,17 @@ class FileChunk(Base):
 	"""
 	__tablename__ = 'files_chunks'
 	__table_args__ = (
-		Comment('Stored File Chunks'),
+		Comment('Stored file chunks'),
 		{
 			'mysql_engine'  : 'InnoDB',
-			'mysql_charset' : 'utf8'
+			'mysql_charset' : 'utf8',
+			'info'          : {
+				'cap_menu'      : 'BASE_ADMIN',
+				'cap_read'      : 'BASE_ADMIN',
+				'cap_create'    : '__NOPRIV__',
+				'cap_edit'      : '__NOPRIV__',
+				'cap_delete'    : '__NOPRIV__'
+			}
 		}
 	)
 	file_id = Column(
@@ -3811,7 +3846,7 @@ class FileChunk(Base):
 	)
 	# needs deferred? maybe not
 	data = Column(
-		LargeBinary(),
+		LargeBLOB(),
 		Comment('File chunk data'),
 		nullable=False,
 		info={
@@ -4272,7 +4307,7 @@ class LogType(Base):
 	id = Column(
 		'ltid',
 		UInt32(),
-		Sequence('logs_types_ltid_seq'),
+		Sequence('logs_types_ltid_seq', start=101, increment=1),
 		Comment('Log entry type ID'),
 		primary_key=True,
 		nullable=False,
@@ -4324,7 +4359,7 @@ class LogAction(Base):
 	id = Column(
 		'laid',
 		UInt32(),
-		Sequence('logs_actions_laid_seq'),
+		Sequence('logs_actions_laid_seq', start=101, increment=1),
 		Comment('Log action ID'),
 		primary_key=True,
 		nullable=False,
@@ -4387,9 +4422,9 @@ class LogData(Base):
 		'ts',
 		TIMESTAMP(),
 		Comment('Log entry timestamp'),
+		CurrentTimestampDefault(),
 		nullable=False,
 #		default=zzz,
-		server_default=func.current_timestamp(),
 		info={
 			'header_string' : _('Time')
 		}
@@ -4542,10 +4577,9 @@ class NPSession(Base):
 		'lastts',
 		TIMESTAMP(),
 		Comment('Last seen time'),
+		CurrentTimestampDefault(on_update=True),
 		nullable=True,
 #		default=None,
-		server_default=func.current_timestamp(),
-		server_onupdate=func.current_timestamp(),
 		info={
 			'header_string' : _('Last Update')
 		}
@@ -4631,9 +4665,9 @@ class PasswordHistory(Base):
 		'ts',
 		TIMESTAMP(),
 		Comment('Time of change'),
+		CurrentTimestampDefault(),
 		nullable=False,
 #		default=zzz,
-		server_default=func.current_timestamp(),
 		info={
 			'header_string' : _('Time')
 		}
@@ -5869,6 +5903,8 @@ class Event(Base):
 		Index('calendars_events_i_uid', 'uid'), # XXX: add gid?
 		Index('calendars_events_i_icaluid', 'icaluid'),
 		Index('calendars_events_i_dtstart', 'dtstart'),
+		Trigger('before', 'insert', 't_calendars_events_bi'),
+		Trigger('before', 'update', 't_calendars_events_bu'),
 		{
 			'mysql_engine'  : 'InnoDB',
 			'mysql_charset' : 'utf8',
@@ -5945,10 +5981,9 @@ class Event(Base):
 		'mtime',
 		TIMESTAMP(),
 		Comment('Last modification timestamp'),
+		CurrentTimestampDefault(on_update=True),
 		nullable=False,
 #		default=zzz,
-		server_default=func.current_timestamp(),
-		server_onupdate=func.current_timestamp(),
 		info={
 			'header_string' : _('Modified')
 		}
@@ -5959,7 +5994,6 @@ class Event(Base):
 		Comment('Event start timestamp'),
 		nullable=True,
 		default=None,
-#		server_default=text('NULL'),
 		info={
 			'header_string' : _('Start')
 		}
@@ -5970,7 +6004,6 @@ class Event(Base):
 		Comment('Event end timestamp'),
 		nullable=True,
 		default=None,
-#		server_default=text('NULL'),
 		info={
 			'header_string' : _('End')
 		}
@@ -6078,4 +6111,40 @@ class Event(Base):
 		if cal and cal.can_write(req.user):
 			return True
 		return False
+
+HWAddrHexIEEEFunction = SQLFunction(
+	'hwaddr_hex_i',
+	args=(SQLFunctionArgument('hwbin', BINARY(6)),),
+	returns=Unicode(15),
+	comment='Convert binary hardware address to IEEE-style string',
+	reads_sql=False,
+	writes_sql=False
+)
+
+HWAddrHexLinuxFunction = SQLFunction(
+	'hwaddr_hex_l',
+	args=(SQLFunctionArgument('hwbin', BINARY(6)),),
+	returns=Unicode(18),
+	comment='Convert binary hardware address to Linux-style string',
+	reads_sql=False,
+	writes_sql=False
+)
+
+HWAddrHexWindowsFunction = SQLFunction(
+	'hwaddr_hex_w',
+	args=(SQLFunctionArgument('hwbin', BINARY(6)),),
+	returns=Unicode(18),
+	comment='Convert binary hardware address to Windows-style string',
+	reads_sql=False,
+	writes_sql=False
+)
+
+HWAddrUnhexFunction = SQLFunction(
+	'hwaddr_unhex',
+	args=(SQLFunctionArgument('hwstr', Unicode(255)),),
+	returns=BINARY(6),
+	comment='Convert various hardware address formats to binary',
+	reads_sql=False,
+	writes_sql=False
+)
 
