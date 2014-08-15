@@ -70,7 +70,7 @@ class Module(ModuleBase):
 
 	@classmethod
 	def get_models(self):
-	from netprofile_powerdns import models 
+		from netprofile_powerdns import models 
 		return (
 			models.UserDomain,
 			models.PDNSComment,
