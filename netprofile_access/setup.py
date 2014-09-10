@@ -8,6 +8,7 @@ CHANGES = open(os.path.join(here, 'CHANGES.txt')).read()
 
 requires = [
 	'setuptools',
+	'rauth',
 	'netprofile_stashes >= 0.3',
 	'netprofile_rates >= 0.3',
 	'netprofile_ipaddresses >= 0.3'
