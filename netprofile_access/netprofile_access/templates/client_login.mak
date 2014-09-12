@@ -3,6 +3,16 @@
 <%block name="title">${_('Log In')}</%block>
 <%block name="head">\
 	<link rel="stylesheet" href="${req.static_url('netprofile_access:static/css/login.css')}" type="text/css" />
+
+<script type="text/javascript">
+$(document).ready(function(){
+   $("#registersocial").popover({
+     placement : 'bottom',
+     html : 'true'
+    });
+});
+</script>
+
 </%block>
 
 <div class="container">
@@ -42,7 +52,47 @@
 % if can_recover:
 		<a href="${req.route_url('access.cl.restorepass')}" id="restorepass" class="btn btn-info pull-right" title="${_('Recover lost password via e-mail')}" tabindex="6">${_('Lost Password?')}</a>
 % endif
+% if can_usesocial:
+                <a href="#" id='registersocial' class="btn btn-default" data-toggle="popover" title="${_('Login with...')}" data-content='
+		   % for lp in login_providers.keys():
+		   % if lp == 'twitter':
+		     <span><a data-toggle="modal" href="#modalTwitterEmail"><img src="${req.static_url('netprofile_access:static/img/loginproviders/%s.png' % lp)}" title="${lp.capitalize()}"></a></span>
+		   % else:  
+		     <span><a href="${req.route_url('access.cl.oauthwrapper')}?prov=${lp.lower()}"><img src="${req.static_url('netprofile_access:static/img/loginproviders/%s.png' % lp)}" title="${lp.capitalize()}"></a><span>
+		   % endif
+		   % endfor 
+		  '>${_('Login with...')}</a>
+% endif
 	</div>
 </form>
+
+% if can_usesocial:
+<div class="modal fade" id="modalTwitterEmail" tabindex="-1" role="dialog" aria-labelledby="modalLabelTwitter" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal"><span aria-hidden="true">&times;</span><span class="sr-only">${_('Close')}</span></button>
+        <h4 class="modal-title" id="modalLabelTwitter">${_('Please provide a valid email')}</h4>
+      </div>
+      <div class="modal-body">
+        <form method="GET" action="${req.route_url('access.cl.oauthwrapper')}" class="form-inline" role="form" id="emailForm">
+          <div class="form-group">
+	    <label for="twitterEmail">${_('Email address')}</label>
+	    <input type="email" class="form-control" name="twitterEmail" id="twitterEmail" placeholder="${_('Enter email')}">
+            <input type="hidden" name="prov" id="prov" value="twitter">
+            <input type="hidden" name="csrf" value="${req.get_csrf()}" />
+          </div>
+      </div>
+      <div class="modal-footer">
+	<input type="submit" value="${_("Login")}" class="btn btn-primary"/>
+	</form>
+        <button type="button" class="btn btn-default" data-dismiss="modal">${_('Close')}</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+% endif
+
 </div>
 
