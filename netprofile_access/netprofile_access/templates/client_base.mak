@@ -46,6 +46,7 @@ from netprofile.tpl.filters import jsone_compact
 	<script type="text/javascript" src="${req.static_url('netprofile_access:static/js/jquery.fileupload-process.js')}"></script>
 	<script type="text/javascript" src="${req.static_url('netprofile_access:static/js/jquery.fileupload-validate.js')}"></script>
 	<script type="text/javascript" src="${req.static_url('netprofile_access:static/js/jquery.fileupload-ui.js')}"></script>
+	<script type="text/javascript" src="${req.static_url('netprofile_access:static/js/bootstrap-tooltip.js')}"></script>
 % endif
 % else:
 	<link rel="stylesheet" href="${req.static_url('netprofile_access:static/css/bootstrap.min.css')}" type="text/css" />
