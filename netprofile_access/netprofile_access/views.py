@@ -28,6 +28,7 @@ from __future__ import (
 )
 
 import datetime, os, random, re, string, hashlib
+import json
 
 from rauth import OAuth2Service, OAuth1Service
 from rauth.utils import parse_utf8_qsl
@@ -305,6 +306,8 @@ def client_oauth_wrapper(request):
 
 	if auth_provider == 'facebook':
 		redirect_uri = request.route_url('access.cl.oauthfacebook')
+	elif auth_provider == 'google':
+		redirect_uri = request.route_url('access.cl.oauthgoogle')
 	elif auth_provider == 'twitter':
 		csrf = request.GET.get('csrf', None)
 		email = request.GET.get('twitterEmail', None)
@@ -398,7 +401,70 @@ def client_oauth_twitter(request):
 				return HTTPSeeOther(location=request.route_url('access.cl.home'), headers=headers)
 
 	return HTTPSeeOther(location=request.route_url('access.cl.login'))
-	
+
+@view_config(route_name='access.cl.oauthgoogle', request_method='GET')
+def client_oauth_google(request):
+	cfg = request.registry.settings
+	loc = get_localizer(request)
+	min_pwd_len = int(cfg.get('netprofile.client.registration.min_password_length', 8))
+	auth_provider = 'google'
+	reg_params = {
+		'email':None,
+		'username':None,
+		'password':None,
+		'givenname':None,
+		'familyname':None,
+		}
+
+	GOOGLE_APP_ID = cfg.get('netprofile.client.GOOGLE_APP_ID', False)
+	GOOGLE_APP_SECRET = cfg.get('netprofile.client.GOOGLE_APP_SECRET', False)
+
+	gauthcode = request.GET.get('code', False)
+	redirect_uri = request.route_url('access.cl.oauthgoogle')
+
+	google = OAuth2Service(
+		client_id=GOOGLE_APP_ID,
+		client_secret=GOOGLE_APP_SECRET,
+		name='google',
+		authorize_url='https://accounts.google.com/o/oauth2/auth',
+		access_token_url='https://accounts.google.com/o/oauth2/token',
+		base_url='https://accounts.google.com/o/oauth2/auth',
+		)
+
+	if gauthcode is not False:
+		gsession = google.get_auth_session(
+			data={
+				'code'         : gauthcode,
+				'redirect_uri' : redirect_uri,
+				'grant_type'   : 'authorization_code'
+				},
+			decoder=lambda b: json.loads(b.decode())
+			)
+		json_path = 'https://www.googleapis.com/oauth2/v1/userinfo'
+		res_json = gsession.get(json_path).json()
+		
+		reg_params['email'] = res_json['email']
+		reg_params['username'] = res_json['email'].split("@")[0]
+		reg_params['givenname'] = res_json['given_name']
+		reg_params['familyname'] = res_json['family_name']
+		passwordhash = hashlib.sha224((auth_provider + reg_params['email'] + reg_params['username'] + res_json['id']).encode('utf8')).hexdigest()
+		reg_params['password'] = passwordhash[::3][:8]
+		
+		headers = client_oauth_register(request, reg_params)
+		if headers:
+			return HTTPSeeOther(location=request.route_url('access.cl.home'), headers=headers)
+		else:
+			return HTTPSeeOther(location=request.route_url('access.cl.home'))
+
+	if GOOGLE_APP_ID and GOOGLE_APP_SECRET:
+		params = {
+			'scope': 'email profile',
+			'response_type': 'code',
+			'redirect_uri': redirect_uri
+			}
+		authorize_url = google.get_authorize_url(**params)
+		return HTTPSeeOther(authorize_url)
+
 @view_config(route_name='access.cl.oauthfacebook', request_method='GET')
 def client_oauth_facebook(request):
 	if authenticated_userid(request):
