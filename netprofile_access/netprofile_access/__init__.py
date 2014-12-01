@@ -45,6 +45,7 @@ class Module(ModuleBase):
 		mmgr.cfg.add_route('access.cl.logout', '/logout', vhost='client')
 		mmgr.cfg.add_route('access.cl.oauthwrapper', '/oauth', vhost='client')
 		mmgr.cfg.add_route('access.cl.oauthfacebook', '/oauthfb', vhost='client')
+		mmgr.cfg.add_route('access.cl.oauthgoogle', '/oauthgplus', vhost='client')
 		mmgr.cfg.add_route('access.cl.oauthtwitter', '/oauthtw/{email}', vhost='client')
 		mmgr.cfg.add_route('access.cl.oauthreg', '/oauthreg', vhost='client')
 		mmgr.cfg.add_route('access.cl.upload', '/upload', vhost='client')
