@@ -206,6 +206,25 @@ class Stash(Base):
 			'column_flex'   : 3
 		}
 	)
+	passtoken = Column(
+		Unicode(255),
+		Comment('Stash Pkpass AuthToken'),
+		nullable=False,
+		info={
+			'header_string' : _('Pkpass AuthToken'),
+			'column_flex'   : 3
+		}
+	)
+
+	passserial = Column(
+		Unicode(255),
+		Comment('Stash Pkpass Serial'),
+		nullable=False,
+		info={
+			'header_string' : _('Pkpass serial'),
+			'column_flex'   : 3
+		}
+	)
 	amount = Column(
 		Money(),
 		Comment('Stash balance'),
