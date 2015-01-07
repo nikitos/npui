@@ -55,6 +55,7 @@ from netprofile.db.connection import DBSession
 
 from .models import (
 	FuturePayment,
+	PassbookPass,
 	FuturePaymentOrigin,
 	Stash,
 	StashIO
@@ -135,38 +136,38 @@ class ClientRootFactory(RootFactory):
 	name='getpass',
 	#permission='USAGE'
 )
+#And what about set pass?
+#update stashes_def set passserial=MD5(CONCAT(stashid, entityid));
+#update stashes_def set passserial=substring(passtoken, 3,9);
+#make a trigger after adding a new stash
+#and check if new version with passes in a separate table works well
 def get_pkpass(request):
 	loc = get_localizer(request)
 	cfg = request.registry.settings
 	sess = DBSession()
-	st = None
+	client_pass = None
 	token = None
 	passserial = request.current_route_path().split('/')[-1].split("?")[0]
-	#don't check if user if logged in
-	#instead get pkpass serial and check for the user with this serial.
-	#
-	#if not request.user:
-	#	raise KeyError('Not logged in')
 	
 	try:
 		token = request.params.get('authtoken', None)
 		sess = DBSession()
 		if token:
 			try:
-				st = sess.query(Stash).filter(
-					Stash.passtoken == token,
+				client_pass = sess.query(PassbookPass).filter(
+					PassbookPass.token == token,
 					).one()
 			
 			except NoResultFound:
-				raise KeyError('Invalid stash ID')
+				raise KeyError('Invalid token')
 		else:
 			try:
-				st = sess.query(Stash).filter(
-					Stash.passserial == passserial,
+				client_pass = sess.query(PassbookPass).filter(
+					PassbookPass.serial == passserial,
 					).one()
-				token = st.passtoken
+				token = client_pass.token
 			except NoResultFound:
-				raise KeyError('Invalid stash ID')
+				raise KeyError('Invalid setial')
 	except ValueError:
 		pass
 
@@ -182,10 +183,10 @@ def get_pkpass(request):
 	pkpass.teamIdentifier=teamId
 	pkpass.passTypeIdentifier=passId
 	pkpass.addHeaderField("Name", "Netprofile Account", 'My Netprofile Account Details')
-	pkpass.addPrimaryField("username", st.entity.nick, "Username")
-	pkpass.addPrimaryField("Account Name", st.name, 'Account Name')
-	pkpass.addSecondaryField("Amount", "{0}".format(st.amount), "Amont")
-	pkpass.addSecondaryField("Credit", "{0}".format(st.credit), "Credit")
+	pkpass.addPrimaryField("username", client_pass.stash.entity.nick, "Username")
+	pkpass.addPrimaryField("Account Name", client_pass.stash.name, 'Account Name')
+	pkpass.addSecondaryField("Amount", "{0}".format(client_pass.stash.amount), "Amont")
+	pkpass.addSecondaryField("Credit", "{0}".format(client_pass.stash.credit), "Credit")
 	pkpass.sign(p12_cert, "", passfile.name, pem_cert)
 
 	resp = FileResponse(passfile.name)

@@ -29,11 +29,12 @@ from __future__ import (
 
 __all__ = [
 	'FuturePayment',
+	'PassbookPass',
 	'Stash',
 	'StashIO',
 	'StashIOType',
 	'StashOperation',
-
+	
 	'FuturesPollProcedure',
 
 	'FuturesPollEvent'
@@ -142,6 +143,92 @@ class FuturePaymentOrigin(DeclEnum):
 	operator = 'oper', _('Operator'), 10
 	user     = 'user', _('User'),     20
 
+class PassbookPass(Base):
+	"""
+	Passbook pass object
+	"""
+	__tablename__ = 'passes_def'
+	__table_args__ = (
+		Comment("Passbook tokens and serials"),
+		{
+			'mysql_engine'  : 'InnoDB',
+			'mysql_charset' : 'utf8',
+			'info'          : {
+				'cap_menu'      : 'BASE_STASHES',
+				'cap_read'      : 'STASHES_LIST',
+				'cap_create'    : 'STASHES_CREATE',
+				'cap_edit'      : 'STASHES_EDIT',
+				'cap_delete'    : 'STASHES_DELETE',
+				'menu_name'     : _('Pass Tokens'),
+				'menu_main'     : True,
+				'show_in_menu'  : 'modules',
+				'menu_order'    : 20,########## correct all names
+				'default_sort'  : ({ 'property': 'passid', 'direction': 'ASC' },),
+				'grid_view'     : ('stash', 'token', 'serial'),
+				'form_view'     : ('stash', 'token', 'serial'),
+				'easy_search'   : ('stash',),
+				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
+				'create_wizard' : SimpleWizard(title=_('Add new token'))
+				}
+			}
+		)
+	id = Column(
+		'passid',
+		UInt32(),
+		Sequence('passes_def_passid_seq'),
+		Comment('Pass ID'),
+		primary_key=True,
+		nullable=False,
+		info={
+			'header_string' : _('ID')
+			}
+		)
+
+	token = Column(
+		'passtoken',
+		Unicode(255),
+		Comment('Pass AuthToken'),
+		nullable=False,
+		info={
+			'header_string' : _('Pass AuthToken'),
+			'column_flex'   : 3
+		}
+	)
+
+	serial = Column(
+		'passserial',
+		Unicode(255),
+		Comment('Pass Serial'),
+		nullable=False,
+		info={
+			'header_string' : _('Pass serial'),
+			'column_flex'   : 3
+		}
+	)
+	
+	stash_id = Column(
+		'stashid',
+		UInt32(),
+		Comment('Stash ID'),
+		ForeignKey('stashes_def.stashid', name='passes_def_fk_stashid', onupdate='CASCADE', ondelete='CASCADE'),
+		nullable=False,
+		info={
+			'header_string' : _('Stash'),
+			'filter_type'   : 'none',
+			'column_flex'   : 2
+			}
+		)
+	stash = relationship(
+		'Stash',
+		innerjoin=True,
+		backref=backref(
+			'passes',
+			cascade='all, delete-orphan',
+			passive_deletes=True
+			)
+		)
+	
+
 class Stash(Base):
 	"""
 	Stash object.
@@ -206,25 +293,6 @@ class Stash(Base):
 			'column_flex'   : 3
 		}
 	)
-	passtoken = Column(
-		Unicode(255),
-		Comment('Stash Pkpass AuthToken'),
-		nullable=False,
-		info={
-			'header_string' : _('Pkpass AuthToken'),
-			'column_flex'   : 3
-		}
-	)
-
-	passserial = Column(
-		Unicode(255),
-		Comment('Stash Pkpass Serial'),
-		nullable=False,
-		info={
-			'header_string' : _('Pkpass serial'),
-			'column_flex'   : 3
-		}
-	)
 	amount = Column(
 		Money(),
 		Comment('Stash balance'),
@@ -269,7 +337,6 @@ class Stash(Base):
 			'read_only'     : True
 		}
 	)
-
 	entity = relationship(
 		'Entity',
 		innerjoin=True,
@@ -279,6 +346,7 @@ class Stash(Base):
 			passive_deletes=True
 		)
 	)
+
 
 	def __str__(self):
 		return '%s: %s' % (

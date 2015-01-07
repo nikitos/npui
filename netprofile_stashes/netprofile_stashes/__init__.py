@@ -56,6 +56,7 @@ class Module(ModuleBase):
 		from netprofile_stashes import models
 		return (
 			models.FuturePayment,
+			models.PassbookPass,
 			models.Stash,
 			models.StashIO,
 			models.StashIOType,
