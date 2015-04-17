@@ -2,7 +2,7 @@
 # -*- coding: utf-8; tab-width: 4; indent-tabs-mode: t -*-
 #
 # NetProfile: Access module - Models
-# © Copyright 2013-2014 Alex 'Unik' Unigovsky
+# © Copyright 2013-2015 Alex 'Unik' Unigovsky
 #
 # This file is part of NetProfile.
 # NetProfile is free software: you can redistribute it and/or
@@ -97,11 +97,24 @@ from netprofile.db.ddl import (
 	Trigger
 )
 from netprofile.ext.columns import MarkupColumn
-from netprofile.ext.wizards import SimpleWizard
+from netprofile.ext.wizards import (
+	SimpleWizard, 
+	Wizard, 
+	Step, 
+	ExternalWizardField
+)
+
+from netprofile.ext.data import (
+	ExtModel,
+	_name_to_class
+)
+from netprofile.common.hooks import register_hook
 from pyramid.i18n import (
 	TranslationStringFactory,
 	get_localizer
 )
+
+from pyramid.threadlocal import get_current_request
 
 from netprofile_entities.models import (
 	Entity,
@@ -111,6 +124,31 @@ from netprofile_entities.models import (
 _ = TranslationStringFactory('netprofile_access')
 
 EntityType.add_symbol('access', ('access', _('Access'), 50))
+
+@register_hook('np.wizard.init.entities.Entity')
+def _wizcb_aent_init(wizard, model, req):
+	def _wizcb_aent_submit(wiz, em, step, act, val, req):
+		sess = DBSession()
+		em = ExtModel(AccessEntity)
+		obj = AccessEntity()
+		# Work around field name clash
+		if 'state' in val:
+			del val['state']
+		em.set_values(obj, val, req, True)
+		sess.add(obj)
+		return {
+			'do'     : 'close',
+			'reload' : True
+		}
+
+	wizard.steps.append(Step(
+		ExternalWizardField('AccessEntity', 'password'),
+		ExternalWizardField('AccessEntity', 'stash'),
+		ExternalWizardField('AccessEntity', 'rate'),
+		id='ent_access1', title=_('Access entity properties'),
+		on_prev='generic',
+		on_submit=_wizcb_aent_submit
+	))
 
 class AccessState(DeclEnum):
 	"""
@@ -133,9 +171,7 @@ class AccessEntity(Entity):
 	"""
 	Access entity object.
 	"""
-
 	DN_ATTR = 'uid'
-
 	__tablename__ = 'entities_access'
 	__table_args__ = (
 		Comment('Access entities'),
@@ -160,7 +196,6 @@ class AccessEntity(Entity):
 
 				'show_in_menu' : 'modules',
 				'menu_name'    : _('Access Entities'),
-				'menu_order'   : 50,
 				'menu_parent'  : 'entities',
 				'default_sort' : ({ 'property': 'nick' ,'direction': 'ASC' },),
 				'grid_view'    : (
@@ -174,8 +209,10 @@ class AccessEntity(Entity):
 						cell_class='np-nopad',
 						template='<img class="np-block-img" src="{grid_icon}" />'
 					),
+					'entityid',
 					'nick', 'stash', 'rate'
 				),
+				'grid_hidden'  : ('entityid',),
 				'form_view'    : (
 					'nick', 'parent', 'state', 'flags',
 					'password', 'stash', 'rate', 'next_rate', #'alias_of',
@@ -189,7 +226,18 @@ class AccessEntity(Entity):
 				'easy_search'  : ('nick',),
 				'extra_data'    : ('grid_icon',),
 				'detail_pane'  : ('netprofile_core.views', 'dpane_simple'),
-				'create_wizard' : SimpleWizard(title=_('Add new access entity'))
+				'create_wizard' : Wizard(
+					Step(
+						'nick', 'parent', 'state', 
+						'flags', 'descr',
+						id='generic', title=_('Generic entity properties'),
+					),
+					Step(
+						'password', 'stash', 'rate',
+						id='ent_access1', title=_('Access entity properties'),
+					),
+					title=_('Add new access entity'), validator='CreateAccessEntity'
+				)
 			}
 		}
 	)
@@ -458,7 +506,8 @@ class PerUserRateModifier(Base):
 				'cap_delete'    : 'ENTITIES_EDIT', # FIXME
 				'menu_name'     : _('Rate Modifiers'),
 				'default_sort'  : ({ 'property': 'l_ord', 'direction': 'ASC' },),
-				'grid_view'     : ('entity', 'rate', 'type', 'enabled', 'l_ord'),
+				'grid_view'     : ('rmid', 'entity', 'rate', 'type', 'enabled', 'l_ord'),
+				'grid_hidden'   : ('rmid',),
 				'create_wizard' : SimpleWizard(title=_('Add new rate modifier'))
 			}
 		}
@@ -482,7 +531,8 @@ class PerUserRateModifier(Base):
 		nullable=False,
 		info={
 			'header_string' : _('Type'),
-			'filter_type'   : 'list'
+			'filter_type'   : 'list',
+			'column_flex'   : 1
 		}
 	)
 	entity_id = Column(
@@ -493,7 +543,8 @@ class PerUserRateModifier(Base):
 		nullable=False,
 		info={
 			'header_string' : _('Account'),
-			'filter_type'   : 'none'
+			'filter_type'   : 'none',
+			'column_flex'   : 1
 		}
 	)
 	rate_id = Column(
@@ -506,7 +557,8 @@ class PerUserRateModifier(Base):
 		server_default=text('NULL'),
 		info={
 			'header_string' : _('Rate'),
-			'filter_type'   : 'list'
+			'filter_type'   : 'list',
+			'column_flex'   : 1
 		}
 	)
 	creation_time = Column(
@@ -596,7 +648,8 @@ class AccessBlock(Base):
 
 				'menu_name'     : _('Access Blocks'),
 				'default_sort'  : ({ 'property': 'startts' ,'direction': 'ASC' },),
-				'grid_view'     : ('entity', 'startts', 'endts', 'bstate'),
+				'grid_view'     : ('abid', 'entity', 'startts', 'endts', 'bstate'),
+				'grid_hidden'   : ('abid',),
 				'form_view'     : ('entity', 'startts', 'endts', 'bstate', 'oldstate'),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
 				'create_wizard' : SimpleWizard(title=_('Add new access block'))
@@ -694,9 +747,9 @@ class AccessEntityLinkType(Base):
 
 				'show_in_menu'  : 'admin',
 				'menu_name'     : _('Link Types'),
-				'menu_order'    : 10,
 				'default_sort'  : ({ 'property': 'name' ,'direction': 'ASC' },),
 				'grid_view'     : ('ltid', 'name'),
+				'grid_hidden'   : ('ltid',),
 				'form_view'     : ('name', 'descr'),
 				'easy_search'   : ('name',),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
@@ -761,7 +814,8 @@ class AccessEntityLink(Base):
 
 				'menu_name'     : _('Links'),
 				'default_sort'  : ({ 'property': 'ltid' ,'direction': 'ASC' },),
-				'grid_view'     : ('entity', 'type', 'ts', 'value'),
+				'grid_view'     : ('lid', 'entity', 'type', 'ts', 'value'),
+				'grid_hidden'   : ('lid',),
 				'easy_search'   : ('value',),
 				'create_wizard' : SimpleWizard(title=_('Add new link'))
 			}

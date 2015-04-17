@@ -2,7 +2,7 @@
 # -*- coding: utf-8; tab-width: 4; indent-tabs-mode: t -*-
 #
 # NetProfile: Sessions module - Models
-# © Copyright 2014 Alex 'Unik' Unigovsky
+# © Copyright 2014-2015 Alex 'Unik' Unigovsky
 #
 # This file is part of NetProfile.
 # NetProfile is free software: you can redistribute it and/or
@@ -112,14 +112,15 @@ class AccessSession(Base):
 				'menu_name'     : _('Sessions'),
 				'show_in_menu'  : 'modules',
 				'menu_main'     : True,
-				'menu_order'    : 40,
 				'default_sort'  : ({ 'property': 'updatets', 'direction': 'DESC' },),
 				'grid_view'     : (
+					'sessid',
 					'nas', 'name',
-					'entity', 'csid',
+					'entity', 'csid', 'called',
 					'ut_ingress', 'ut_egress',
 					'startts', 'updatets'
 				),
+				'grid_hidden'   : ('sessid', 'name', 'called'),
 				'form_view'     : (
 					'stationid', 'nas', 'called', 'name',
 					'entity', 'csid',
@@ -151,13 +152,14 @@ class AccessSession(Base):
 		nullable=False,
 		info={
 			'header_string' : _('Name'),
-			'column_flex'   : 1
+			'column_flex'   : 2
 		}
 	)
 	station_id = Column(
 		'stationid',
 		UInt32(),
 		Comment('Station ID'),
+		# TODO: add foreign key to hosts?
 		nullable=False,
 		default=1,
 		server_default=text('1'),
@@ -228,7 +230,8 @@ class AccessSession(Base):
 		server_default=text('NULL'),
 		info={
 			'header_string' : _('NAS'),
-			'filter_type'   : 'list'
+			'filter_type'   : 'list',
+			'column_flex'   : 1
 		}
 	)
 	calling_station_id = Column(
@@ -239,7 +242,8 @@ class AccessSession(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Calling Station')
+			'header_string' : _('Calling Station'),
+			'column_flex'   : 1
 		}
 	)
 	called_station_id = Column(
@@ -250,7 +254,8 @@ class AccessSession(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Called Station')
+			'header_string' : _('Called Station'),
+			'column_flex'   : 1
 		}
 	)
 	start_timestamp = Column(
@@ -366,14 +371,15 @@ class AccessSessionHistory(Base):
 				'cap_delete'    : '__NOPRIV__',
 				'menu_name'     : _('History'),
 				'show_in_menu'  : 'modules',
-				'menu_order'    : 40,
 				'default_sort'  : ({ 'property': 'endts', 'direction': 'DESC' },),
 				'grid_view'     : (
+					'sessid',
 					'nas', 'name',
-					'entity', 'csid',
+					'entity', 'csid', 'called',
 					'ut_ingress', 'ut_egress',
 					'startts', 'endts'
 				),
+				'grid_hidden'   : ('sessid', 'name', 'called'),
 				'form_view'     : (
 					'stationid', 'nas', 'called', 'name',
 					'entity', 'csid',
@@ -405,7 +411,7 @@ class AccessSessionHistory(Base):
 		nullable=False,
 		info={
 			'header_string' : _('Name'),
-			'column_flex'   : 1
+			'column_flex'   : 2
 		}
 	)
 	station_id = Column(
@@ -480,7 +486,8 @@ class AccessSessionHistory(Base):
 		server_default=text('NULL'),
 		info={
 			'header_string' : _('NAS'),
-			'filter_type'   : 'list'
+			'filter_type'   : 'list',
+			'column_flex'   : 1
 		}
 	)
 	calling_station_id = Column(
@@ -491,7 +498,8 @@ class AccessSessionHistory(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Calling Station')
+			'header_string' : _('Calling Station'),
+			'column_flex'   : 1
 		}
 	)
 	called_station_id = Column(
@@ -502,7 +510,8 @@ class AccessSessionHistory(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Called Station')
+			'header_string' : _('Called Station'),
+			'column_flex'   : 1
 		}
 	)
 	start_timestamp = Column(

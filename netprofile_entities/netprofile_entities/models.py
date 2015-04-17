@@ -2,7 +2,7 @@
 # -*- coding: utf-8; tab-width: 4; indent-tabs-mode: t -*-
 #
 # NetProfile: Entities module - Models
-# © Copyright 2013-2014 Alex 'Unik' Unigovsky
+# © Copyright 2013-2015 Alex 'Unik' Unigovsky
 #
 # This file is part of NetProfile.
 # NetProfile is free software: you can redistribute it and/or
@@ -141,7 +141,7 @@ class EntityType(DeclEnum):
 	structural = 'structural', _('Structural'), 30
 	external   = 'external',   _('External'),   40
 
-def _wizcb_ent_generic_next(wiz, step, act, val, req):
+def _wizcb_ent_generic_next(wiz, em, step, act, val, req):
 	ret = {
 		'do'      : 'goto',
 		'goto'    : 'ent_physical1'
@@ -163,7 +163,7 @@ def _wizcb_ent_generic_next(wiz, step, act, val, req):
 	return ret
 
 def _wizcb_ent_submit(cls):
-	def _wizcb_submit_hdl(wiz, step, act, val, req):
+	def _wizcb_submit_hdl(wiz, em, step, act, val, req):
 		xcls = cls
 		if isinstance(xcls, str):
 			xcls = _name_to_class(xcls)
@@ -241,7 +241,6 @@ class Entity(Base):
 				'show_in_menu'  : 'modules',
 				'menu_name'     : _('Entities'),
 				'menu_main'     : True,
-				'menu_order'    : 10,
 				'default_sort'  : ({ 'property': 'nick' ,'direction': 'ASC' },),
 				'grid_view'     : (
 					MarkupColumn(
@@ -254,6 +253,7 @@ class Entity(Base):
 						cell_class='np-nopad',
 						template='<img class="np-block-img" src="{grid_icon}" />'
 					),
+					'entityid',
 					'nick',
 					MarkupColumn(
 						name='object',
@@ -269,9 +269,10 @@ class Entity(Base):
 					),
 					'state'
 				),
+				'grid_hidden'   : ('entityid',),
 				'easy_search'   : ('nick',),
 				'extra_data'    : ('data', 'grid_icon'),
-				'detail_pane'   : ('netprofile_entities.views', 'dpane_entities'),
+				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
 				'extra_search'  : (
 					TextFilter('phone', _filter_phone,
 						title=_('Phone')
@@ -293,6 +294,7 @@ class Entity(Base):
 						ExternalWizardField('PhysicalEntity', 'name_family'),
 						ExternalWizardField('PhysicalEntity', 'name_given'),
 						ExternalWizardField('PhysicalEntity', 'name_middle'),
+						ExternalWizardField('PhysicalEntity', 'gender'),
 						id='ent_physical1', title=_('Physical entity properties'),
 						on_prev='generic'
 					),
@@ -367,7 +369,7 @@ class Entity(Base):
 	parent_id = Column(
 		'parentid',
 		UInt32(),
-		ForeignKey('entities_def.entityid', name='entities_def_fk_parentid', onupdate='CASCADE'),
+		ForeignKey('entities_def.entityid', name='entities_def_fk_parentid', ondelete='CASCADE', onupdate='CASCADE'),
 		Comment('Parent entity ID'),
 		nullable=True,
 		default=None,
@@ -427,7 +429,8 @@ class Entity(Base):
 		default=None,
 		server_default=FetchedValue(),
 		info={
-			'header_string' : _('Created')
+			'header_string' : _('Created'),
+			'read_only'     : True
 		}
 	)
 	modification_time = Column(
@@ -438,7 +441,8 @@ class Entity(Base):
 		nullable=False,
 #		default=zzz,
 		info={
-			'header_string' : _('Modified')
+			'header_string' : _('Modified'),
+			'read_only'     : True
 		}
 	)
 	created_by_id = Column(
@@ -450,7 +454,8 @@ class Entity(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Created')
+			'header_string' : _('Created'),
+			'read_only'     : True
 		}
 	)
 	modified_by_id = Column(
@@ -462,7 +467,8 @@ class Entity(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Modified')
+			'header_string' : _('Modified'),
+			'read_only'     : True
 		}
 	)
 	description = Column(
@@ -479,7 +485,8 @@ class Entity(Base):
 	__mapper_args__ = {
 		'polymorphic_identity' : 'entity',
 		'polymorphic_on'       : type,
-		'with_polymorphic'     : '*'
+		'with_polymorphic'     : '*',
+		'confirm_deleted_rows' : False
 	}
 
 	state = relationship(
@@ -489,7 +496,9 @@ class Entity(Base):
 	)
 	children = relationship(
 		'Entity',
-		backref=backref('parent', remote_side=[id])
+		backref=backref('parent', remote_side=[id]),
+		cascade='all, delete-orphan',
+		passive_deletes=True
 	)
 	created_by = relationship(
 		'User',
@@ -654,9 +663,9 @@ class EntityState(Base):
 
 				'show_in_menu'  : 'admin',
 				'menu_name'     : _('Entity States'),
-				'menu_order'    : 10,
 				'default_sort'  : ({ 'property': 'name' ,'direction': 'ASC' },),
-				'grid_view'     : ('name',),
+				'grid_view'     : ('esid', 'name'),
+				'grid_hidden'   : ('esid',),
 				'form_view'     : ('name', 'descr'),
 				'easy_search'   : ('name',),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
@@ -681,7 +690,8 @@ class EntityState(Base):
 		Comment('Entity state name'),
 		nullable=False,
 		info={
-			'header_string' : _('Name')
+			'header_string' : _('Name'),
+			'column_flex'   : 1
 		}
 	)
 	description = Column(
@@ -716,9 +726,9 @@ class EntityFlagType(Base):
 
 				'show_in_menu'  : 'admin',
 				'menu_name'     : _('Entity Flags'),
-				'menu_order'    : 10,
 				'default_sort'  : ({ 'property': 'name' ,'direction': 'ASC' },),
-				'grid_view'     : ('name',),
+				'grid_view'     : ('flagid', 'name'),
+				'grid_hidden'   : ('flagid',),
 				'form_view'     : ('name', 'descr'),
 				'easy_search'   : ('name',),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
@@ -743,7 +753,8 @@ class EntityFlagType(Base):
 		Comment('Entity flag type name'),
 		nullable=False,
 		info={
-			'header_string' : _('Name')
+			'header_string' : _('Name'),
+			'column_flex'   : 1
 		}
 	)
 	description = Column(
@@ -864,7 +875,8 @@ class Address(Base):
 					{ 'property': 'houseid' ,'direction': 'ASC' },
 					{ 'property': 'flat' ,'direction': 'ASC' }
 				),
-				'grid_view'     : ('entity', 'primary', 'atype', 'house', 'entrance', 'floor', 'flat', 'descr'),
+				'grid_view'     : ('addrid', 'entity', 'primary', 'atype', 'house', 'entrance', 'floor', 'flat', 'descr'),
+				'grid_hidden'   : ('addrid',),
 				'form_view'     : ('entity', 'primary', 'atype', 'house', 'entrance', 'floor', 'flat', 'entrycode', 'postindex', 'descr'),
 #				'easy_search'   : (),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
@@ -893,7 +905,8 @@ class Address(Base):
 		nullable=False,
 		info={
 			'header_string' : _('Entity'),
-			'filter_type'   : 'none'
+			'filter_type'   : 'none',
+			'column_flex'   : 1
 		}
 	)
 	type = Column(
@@ -902,7 +915,11 @@ class Address(Base):
 		Comment('Address type'),
 		nullable=False,
 		default=AddressType.home,
-		server_default=AddressType.home
+		server_default=AddressType.home,
+		info={
+			'header_string' : _('Type'),
+			'column_flex'   : 1
+		}
 	)
 	primary = Column(
 		NPBoolean(),
@@ -924,7 +941,8 @@ class Address(Base):
 		server_default=text('NULL'),
 		info={
 			'header_string' : _('House'),
-			'filter_type'   : 'none'
+			'filter_type'   : 'none',
+			'column_flex'   : 1
 		}
 	)
 	entrance = Column(
@@ -987,7 +1005,8 @@ class Address(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Description')
+			'header_string' : _('Description'),
+			'column_flex'   : 2
 		}
 	)
 
@@ -1057,7 +1076,8 @@ class Phone(Base):
 					{ 'property': 'ptype' ,'direction': 'ASC' },
 					{ 'property': 'num' ,'direction': 'ASC' }
 				),
-				'grid_view'     : ('entity', 'primary', 'ptype', 'num', 'descr'),
+				'grid_view'     : ('phoneid', 'entity', 'primary', 'ptype', 'num', 'descr'),
+				'grid_hidden'   : ('phoneid',),
 #				'easy_search'   : (),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
 
@@ -1085,7 +1105,8 @@ class Phone(Base):
 		nullable=False,
 		info={
 			'header_string' : _('Entity'),
-			'filter_type'   : 'none'
+			'filter_type'   : 'none',
+			'column_flex'   : 1
 		}
 	)
 	primary = Column(
@@ -1104,7 +1125,11 @@ class Phone(Base):
 		Comment('Phone type'),
 		nullable=False,
 		default=PhoneType.home,
-		server_default=PhoneType.home
+		server_default=PhoneType.home,
+		info={
+			'header_string' : _('Type'),
+			'column_flex'   : 1
+		}
 	)
 	number = Column(
 		'num',
@@ -1112,7 +1137,8 @@ class Phone(Base):
 		Comment('Phone number'),
 		nullable=False,
 		info={
-			'header_string' : _('Number')
+			'header_string' : _('Number'),
+			'column_flex'   : 1
 		}
 	)
 	description = Column(
@@ -1123,7 +1149,8 @@ class Phone(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Description')
+			'header_string' : _('Description'),
+			'column_flex'   : 2
 		}
 	)
 
@@ -1181,7 +1208,8 @@ class EntityFile(Base):
 				'cap_delete'    : 'FILES_ATTACH_2ENTITIES',
 
 				'menu_name'     : _('Files'),
-				'grid_view'     : ('entity', 'file'),
+				'grid_view'     : ('efid', 'entity', 'file'),
+				'grid_hidden'   : ('efid',),
 
 				'create_wizard' : SimpleWizard(title=_('Attach file'))
 			}
@@ -1363,7 +1391,6 @@ class PhysicalEntity(Entity):
 
 				'show_in_menu'  : 'modules',
 				'menu_name'     : _('Physical entities'),
-				'menu_order'    : 10,
 				'default_sort'  : ({ 'property': 'nick' ,'direction': 'ASC' },),
 				'grid_view'     : (
 					MarkupColumn(
@@ -1375,19 +1402,21 @@ class PhysicalEntity(Entity):
 						cell_class='np-nopad',
 						template='<img class="np-block-img" src="{grid_icon}" />'
 					),
+					'entityid',
 					'nick', 'name_family', 'name_given'
 				),
+				'grid_hidden'   : ('entityid',),
 				'form_view'     : (
 					'nick', 'parent', 'state', 'flags', 'contractid',
 					'name_family', 'name_given', 'name_middle',
-#					'phones', 'addresses',
+					'gender',
 					'email', 'icq', 'homepage', 'birthdate',
 					'pass_series', 'pass_num', 'pass_issuedate', 'pass_issuedby',
 					'descr'
 				),
 				'easy_search'   : ('nick', 'name_family'),
 				'extra_data'    : ('grid_icon',),
-				'detail_pane'   : ('netprofile_entities.views', 'dpane_entities'),
+				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
 				'extra_search'  : (
 					TextFilter('phone', Entity._filter_phone,
 						title=_('Phone')
@@ -1406,12 +1435,9 @@ class PhysicalEntity(Entity):
 					Step(
 						'contractid',
 						'name_family', 'name_given', 'name_middle',
+						'gender',
 						id='ent_physical1', title=_('Physical entity properties')
 					),
-#					Step(
-#						'house', 'entrance', 'floor', 'flat',
-#						id='ent_physical2', title=_('Physical entity properties')
-#					),
 					Step(
 						'pass_series', 'pass_num', 'pass_issuedby', 'pass_issuedate',
 						'email', 'icq', 'homepage', 'birthdate',
@@ -1638,7 +1664,6 @@ class LegalEntity(Entity):
 
 				'show_in_menu'  : 'modules',
 				'menu_name'     : _('Legal entities'),
-				'menu_order'    : 20,
 				'default_sort'  : ({ 'property': 'nick' ,'direction': 'ASC' },),
 				'grid_view'     : (
 					MarkupColumn(
@@ -1650,8 +1675,10 @@ class LegalEntity(Entity):
 						cell_class='np-nopad',
 						template='<img class="np-block-img" src="{grid_icon}" />'
 					),
+					'entityid',
 					'nick', 'name', 'cp_name_family', 'cp_name_given'
 				),
+				'grid_hidden'   : ('entityid',),
 				'form_view'     : (
 					'nick', 'parent', 'state', 'flags', 'contractid',
 					'name',
@@ -1662,7 +1689,7 @@ class LegalEntity(Entity):
 				),
 				'easy_search'   : ('nick', 'name'),
 				'extra_data'    : ('grid_icon',),
-				'detail_pane'   : ('netprofile_entities.views', 'dpane_entities'),
+				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
 				'extra_search'  : (
 					TextFilter('phone', Entity._filter_phone,
 						title=_('Phone')
@@ -1924,7 +1951,6 @@ class StructuralEntity(Entity):
 
 				'show_in_menu'  : 'modules',
 				'menu_name'     : _('Structural entities'),
-				'menu_order'    : 30,
 				'default_sort'  : ({ 'property': 'nick' ,'direction': 'ASC' },),
 				'grid_view'     : (
 					MarkupColumn(
@@ -1936,12 +1962,14 @@ class StructuralEntity(Entity):
 						cell_class='np-nopad',
 						template='<img class="np-block-img" src="{grid_icon}" />'
 					),
+					'entityid',
 					'nick'
 				),
+				'grid_hidden'   : ('entityid',),
 				'form_view'     : ('nick', 'parent', 'state', 'flags', 'descr'),
 				'easy_search'   : ('nick',),
 				'extra_data'    : ('grid_icon',),
-				'detail_pane'   : ('netprofile_entities.views', 'dpane_entities'),
+				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
 				'extra_search'  : (
 					TextFilter('phone', Entity._filter_phone,
 						title=_('Phone')
@@ -2021,7 +2049,6 @@ class ExternalEntity(Entity):
 
 				'show_in_menu'  : 'modules',
 				'menu_name'     : _('External entities'),
-				'menu_order'    : 40,
 				'default_sort'  : ({ 'property': 'nick' ,'direction': 'ASC' },),
 				'grid_view'     : (
 					MarkupColumn(
@@ -2033,15 +2060,17 @@ class ExternalEntity(Entity):
 						cell_class='np-nopad',
 						template='<img class="np-block-img" src="{grid_icon}" />'
 					),
+					'entityid',
 					'nick', 'name', 'address'
 				),
+				'grid_hidden'   : ('entityid',),
 				'form_view'     : (
 					'nick', 'parent', 'state', 'flags',
 					'name', 'address', 'descr'
 				),
 				'easy_search'   : ('nick', 'name'),
 				'extra_data'    : ('grid_icon',),
-				'detail_pane'   : ('netprofile_entities.views', 'dpane_entities'),
+				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
 
 				'create_wizard' : Wizard(
 					Step(

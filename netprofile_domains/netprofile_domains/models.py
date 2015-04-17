@@ -3,7 +3,7 @@
 #
 # NetProfile: Domains module - Models
 # © Copyright 2013 Nikita Andriyanov
-# © Copyright 2013-2014 Alex 'Unik' Unigovsky
+# © Copyright 2013-2015 Alex 'Unik' Unigovsky
 #
 # This file is part of NetProfile.
 # NetProfile is free software: you can redistribute it and/or
@@ -125,13 +125,14 @@ class Domain(Base):
 				'show_in_menu'  : 'modules',
 				'menu_name'     : _('Domains'),
 				'menu_main'     : True,
-				'menu_order'    : 40,
 				'default_sort'  : ({ 'property': 'name' ,'direction': 'ASC' },),
 				'grid_view'     : (
+					'domainid',
 					MarkupColumn(
 						name='name',
 						header_string=_('Name'),
 						template='{__str__}',
+						column_flex=1,
 						sortable=True
 					),
 					'parent',
@@ -144,11 +145,14 @@ class Domain(Base):
 						column_resizable=False
 					)
 				),
+				'grid_hidden'   : ('domainid',),
 				'form_view'		: (
 					'name', 'parent',
 					'enabled', 'public', 'signed',
 					'soa_refresh', 'soa_retry', 'soa_expire', 'soa_minimum',
-					'dkim_name', 'dkim_data',
+					'spf_gen', 'spf_rule', 'spf_errmsg',
+					'dkim_name', 'dkim_data', 'dkim_test', 'dkim_subdomains', 'dkim_strict',
+					'dmarc_trailer',
 					'descr'
 				),
 				'easy_search'   : ('name', 'descr'),
@@ -183,7 +187,8 @@ class Domain(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Parent')
+			'header_string' : _('Parent'),
+			'column_flex'   : 1
 		}
 	)
 	name = Column(
@@ -294,8 +299,82 @@ class Domain(Base):
 		ASCIIText(),
 		Comment('DKIM public key body'),
 		nullable=True,
+		default=None,
+		server_default=text('NULL'),
 		info={
 			'header_string' : _('DKIM Key')
+		}
+	)
+	dkim_test = Column(
+		NPBoolean(),
+		Comment('Use DKIM in test mode'),
+		nullable=False,
+		default=False,
+		server_default=npbool(False),
+		info={
+			'header_string' : _('DKIM Test')
+		}
+	)
+	dkim_subdomains = Column(
+		NPBoolean(),
+		Comment('Propagate DKIM rules to subdomains'),
+		nullable=False,
+		default=False,
+		server_default=npbool(False),
+		info={
+			'header_string' : _('DKIM in Subdomains')
+		}
+	)
+	dkim_strict = Column(
+		NPBoolean(),
+		Comment('Use DKIM strict check and discard'),
+		nullable=False,
+		default=False,
+		server_default=npbool(False),
+		info={
+			'header_string' : _('DKIM Strict')
+		}
+	)
+	spf_generate = Column(
+		'spf_gen',
+		NPBoolean(),
+		Comment('Generate SPF record'),
+		nullable=False,
+		default=True,
+		server_default=npbool(True),
+		info={
+			'header_string' : _('Use SPF')
+		}
+	)
+	spf_rule = Column(
+		ASCIIText(),
+		Comment('Custom SPF rule'),
+		nullable=True,
+		default=None,
+		server_default=text('NULL'),
+		info={
+			'header_string' : _('Custom SPF Rule')
+		}
+	)
+	spf_error_message = Column(
+		'spf_errmsg',
+		UnicodeText(),
+		Comment('Custom SPF error explanation string'),
+		nullable=True,
+		default=None,
+		server_default=text('NULL'),
+		info={
+			'header_string' : _('SPF Error')
+		}
+	)
+	dmarc_trailer = Column(
+		ASCIIString(255),
+		Comment('DMARC record trailer'),
+		nullable=True,
+		default=None,
+		server_default=text('NULL'),
+		info={
+			'header_string' : _('DMARC Trailer')
 		}
 	)
 	description = Column(
@@ -314,6 +393,15 @@ class Domain(Base):
 		'Domain',
 		backref=backref('parent', remote_side=[id])
 	)
+
+	@property
+	def serial(self):
+		if not self.serial_date:
+			return str(self.serial_revision % 100)
+		return '%s%02d' % (
+			self.serial_date.strftime('%Y%m%d'),
+			(self.serial_revision % 100)
+		)
 
 	def __str__(self):
 		if self.parent:
@@ -343,18 +431,20 @@ class DomainAlias(Base):
 				'cap_delete'    : 'DOMAINS_DELETE',
 
 				'menu_name'     : _('Aliases'),
-				'menu_order'    : 40,
 				'default_sort'  : ({ 'property': 'name' ,'direction': 'ASC' },),
 				'grid_view'     : (
+					'daid',
 					MarkupColumn(
 						name='name',
 						header_string=_('Name'),
 						template='{__str__}',
+						column_flex=1,
 						sortable=True
 					),
 					'parent',
 					'domain'
 				),
+				'grid_hidden'   : ('daid',),
 				'easy_search'   : ('name',),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
 
@@ -383,7 +473,8 @@ class DomainAlias(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Parent')
+			'header_string' : _('Parent'),
+			'column_flex'   : 1
 		}
 	)
 	domain_id = Column(
@@ -453,9 +544,9 @@ class DomainTXTRecord(Base):
 				'cap_edit'      : 'DOMAINS_EDIT',
 				'cap_delete'    : 'DOMAINS_EDIT',
 				'menu_name'     : _('TXT Records'),
-				'menu_order'    : 40,
 				'default_sort'  : ({ 'property': 'name' ,'direction': 'ASC' },),
-				'grid_view'     : ('name', 'domain', 'value'),
+				'grid_view'     : ('txtrrid', 'name', 'domain', 'value'),
+				'grid_hidden'   : ('txtrrid',),
 				'form_view'		: ('name', 'domain', 'ttl', 'vis', 'value'),
 				'easy_search'   : ('name', 'value'),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
@@ -485,7 +576,8 @@ class DomainTXTRecord(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Domain')
+			'header_string' : _('Domain'),
+			'column_flex'   : 1
 		}
 	)
 	name = Column(
@@ -493,7 +585,8 @@ class DomainTXTRecord(Base):
 		Comment('Text record name'),
 		nullable=False,
 		info={
-			'header_string' : _('Name')
+			'header_string' : _('Name'),
+			'column_flex'   : 1
 		}
 	)
 	ttl = Column(
@@ -522,7 +615,8 @@ class DomainTXTRecord(Base):
 		Comment('Text record value'),
 		nullable=False,
 		info={
-			'header_string' : _('Value')
+			'header_string' : _('Value'),
+			'column_flex'   : 1
 		}
 	)
 
@@ -561,9 +655,9 @@ class DomainServiceType(Base):
 
 				'show_in_menu'  : 'admin',
 				'menu_name'     : _('Domain Service Types'),
-				'menu_order'    : 40,
 				'default_sort'  : ({ 'property': 'name' ,'direction': 'ASC' },),
-				'grid_view'     : ('name', 'unique'),
+				'grid_view'     : ('hltypeid', 'name', 'unique'),
+				'grid_hidden'   : ('hltypeid',),
 				'easy_search'   : ('name',),
 
 				'create_wizard' : SimpleWizard(title=_('Add new type'))
@@ -587,7 +681,8 @@ class DomainServiceType(Base):
 		Comment('Domains-hosts linkage type name'),
 		nullable=False,
 		info={
-			'header_string' : _('Name')
+			'header_string' : _('Name'),
+			'column_flex'   : 1
 		}
 	)
 	unique = Column(

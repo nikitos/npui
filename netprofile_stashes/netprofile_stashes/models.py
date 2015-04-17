@@ -2,7 +2,7 @@
 # -*- coding: utf-8; tab-width: 4; indent-tabs-mode: t -*-
 #
 # NetProfile: Stashes module - Models
-# © Copyright 2013-2014 Alex 'Unik' Unigovsky
+# © Copyright 2013-2015 Alex 'Unik' Unigovsky
 #
 # This file is part of NetProfile.
 # NetProfile is free software: you can redistribute it and/or
@@ -74,7 +74,6 @@ from netprofile.db.fields import (
 	UInt64,
 	npbool
 )
-from netprofile.ext.data import ExtModel
 from netprofile.db.ddl import (
 	Comment,
 	CurrentTimestampDefault,
@@ -251,9 +250,9 @@ class Stash(Base):
 				'menu_name'     : _('Stashes'),
 				'menu_main'     : True,
 				'show_in_menu'  : 'modules',
-				'menu_order'    : 10,
 				'default_sort'  : ({ 'property': 'name', 'direction': 'ASC' },),
-				'grid_view'     : ('entity', 'name', 'amount', 'credit'),
+				'grid_view'     : ('stashid', 'entity', 'name', 'amount', 'credit'),
+				'grid_hidden'   : ('stashid',),
 				'form_view'     : ('entity', 'name', 'amount', 'credit', 'alltime_min', 'alltime_max'),
 				'easy_search'   : ('name',),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
@@ -376,7 +375,6 @@ class StashIOType(Base):
 				'cap_delete'    : 'STASHES_IOTYPES_DELETE',
 				'menu_name'     : _('Operation Types'),
 				'show_in_menu'  : 'admin',
-				'menu_order'    : 10,
 				'default_sort'  : ({ 'property': 'name', 'direction': 'ASC' },),
 				'grid_view'     : ('name', 'class', 'type'),
 				'form_view'     : ('name', 'class', 'type', 'user_visible', 'oper_visible', 'oper_capability', 'descr'),
@@ -480,9 +478,8 @@ class StashIOType(Base):
 	def __str__(self):
 		return str(self.name)
 
-def _wizcb_stashio_submit(wiz, step, act, val, req):
+def _wizcb_stashio_submit(wiz, em, step, act, val, req):
 	sess = DBSession()
-	em = ExtModel(StashIO)
 	obj = StashIO()
 	em.set_values(obj, val, req, True)
 	sess.add(obj)
@@ -495,9 +492,8 @@ def _wizcb_stashio_submit(wiz, step, act, val, req):
 		'reload' : True
 	}
 
-def _wizcb_future_submit(wiz, step, act, val, req):
+def _wizcb_future_submit(wiz, em, step, act, val, req):
 	sess = DBSession()
-	em = ExtModel(FuturePayment)
 	obj = FuturePayment()
 	em.set_values(obj, val, req, True)
 	sess.add(obj)
@@ -531,10 +527,10 @@ class StashIO(Base):
 				'cap_delete'    : '__NOPRIV__',
 				'menu_name'     : _('Operations'),
 				'show_in_menu'  : 'modules',
-				'menu_order'    : 10,
 				'default_sort'  : ({ 'property': 'ts', 'direction': 'DESC' },),
-				'grid_view' : ('type', 'stash', 'entity', 'user', 'ts', 'diff'),
-				'form_view' : ('type', 'stash', 'entity', 'user', 'ts', 'diff', 'descr'),
+				'grid_view'     : ('sioid', 'type', 'stash', 'entity', 'user', 'ts', 'diff'),
+				'grid_hidden'   : ('sioid',),
+				'form_view'     : ('type', 'stash', 'entity', 'user', 'ts', 'diff', 'descr'),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
 
 				'create_wizard' : Wizard(
@@ -570,7 +566,11 @@ class StashIO(Base):
 			'filter_type'   : 'list',
 			'editor_xtype'  : 'simplemodelselect',
 			'editor_config' : {
-				'extraParams' : { '__ffilter' : { 'oper_visible' : { 'eq' : True } } }
+				'extraParams' : { '__ffilter' : [{
+					'property' : 'oper_visible',
+					'operator' : 'eq',
+					'value'    : True
+				}]}
 			},
 			'column_flex'   : 2
 		}
@@ -671,7 +671,10 @@ class StashIO(Base):
 	)
 	entity = relationship(
 		'Entity',
-		backref='stash_ios'
+		backref=backref(
+			'stash_ios',
+			passive_deletes=True
+		)
 	)
 
 	def __str__(self):
@@ -835,7 +838,10 @@ class StashOperation(Base):
 	)
 	entity = relationship(
 		'Entity',
-		backref='stash_operations'
+		backref=backref(
+			'stash_operations',
+			passive_deletes=True
+		)
 	)
 
 	def __str__(self):
@@ -874,8 +880,9 @@ class FuturePayment(Base):
 				# TODO: APPROVE/CANCEL
 				'menu_name'     : _('Promised Payments'),
 				'default_sort'  : ({ 'property': 'ctime', 'direction': 'DESC' },),
-				'grid_view' : ('entity', 'stash', 'diff', 'state', 'ctime'),
-				'form_view' : (
+				'grid_view'     : ('futureid', 'entity', 'stash', 'diff', 'state', 'ctime'),
+				'grid_hidden'   : ('futureid',),
+				'form_view'     : (
 					'entity', 'stash', 'diff',
 					'state', 'origin',
 					'ctime', 'cby',
@@ -1059,7 +1066,10 @@ class FuturePayment(Base):
 	)
 	entity = relationship(
 		'Entity',
-		backref='stash_futures'
+		backref=backref(
+			'stash_futures',
+			passive_deletes=True
+		)
 	)
 
 	def __str__(self):

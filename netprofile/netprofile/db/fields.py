@@ -2,7 +2,7 @@
 # -*- coding: utf-8; tab-width: 4; indent-tabs-mode: t -*-
 #
 # NetProfile: Custom database fields
-# © Copyright 2013-2014 Alex 'Unik' Unigovsky
+# © Copyright 2013-2015 Alex 'Unik' Unigovsky
 #
 # This file is part of NetProfile.
 # NetProfile is free software: you can redistribute it and/or
@@ -69,7 +69,6 @@ else:
 	)
 
 import re
-import colander
 
 _D_MYSQL = frozenset([
 	mysql.mysqlconnector.dialect,
@@ -176,7 +175,7 @@ class IPv6Address(types.TypeDecorator):
 			return None
 		if _is_pgsql(dialect):
 			return str(value)
-		return value.packed()
+		return value.packed
 
 	def process_result_value(self, value, dialect):
 		if value is None:
@@ -242,21 +241,30 @@ class MACAddress(types.TypeDecorator):
 	"""
 	MAC address
 	"""
-	impl = types.String(17)
+	impl = types.BINARY(6)
+
+	def load_dialect_impl(self, dialect):
+		if _is_pgsql(dialect):
+			return postgresql.MACADDR()
+		return self.impl
 	
 	@property
 	def python_type(self):
-		return types.String
+		return str
 
 	def process_bind_param(self, value, dialect):
 		if value is None:
 			return None
+		if _is_pgsql(dialect):
+			return str(value)
 		return binascii.unhexlify(bytes(value.replace(':', ''), 'utf-8'))
 
 	def process_result_value(self, value, dialect):
 		if value is None:
 			return None
-		return ':'.join( [ "%02X" % x for x in value ] )
+		if _is_pgsql(dialect):
+			return value
+		return ':'.join('%02x' % x for x in value)
 
 
 
@@ -365,12 +373,9 @@ class ASCIIString(types.TypeDecorator):
 	def process_result_value(self, value, dialect):
 		if value is None:
 			return None
-		if isinstance(value, bytes):
+		if isinstance(value, (bytes, bytearray)):
 			value = value.decode('ascii')
 		return value
-
-	def colander_type(self):
-		return colander.String(encoding='ascii')
 
 class ASCIIFixedString(types.TypeDecorator):
 	"""
@@ -386,12 +391,9 @@ class ASCIIFixedString(types.TypeDecorator):
 	def process_result_value(self, value, dialect):
 		if value is None:
 			return None
-		if isinstance(value, bytes):
+		if isinstance(value, (bytes, bytearray)):
 			value = value.decode('ascii')
 		return value
-
-	def colander_type(self):
-		return colander.String(encoding='ascii')
 
 class ExactUnicode(types.TypeDecorator):
 	"""
@@ -407,7 +409,7 @@ class ExactUnicode(types.TypeDecorator):
 	def process_result_value(self, value, dialect):
 		if value is None:
 			return None
-		if isinstance(value, bytes):
+		if isinstance(value, (bytes, bytearray)):
 			value = value.decode()
 		return value
 
@@ -529,12 +531,9 @@ class ASCIITinyText(types.TypeDecorator):
 	def process_result_value(self, value, dialect):
 		if value is None:
 			return None
-		if isinstance(value, bytes):
+		if isinstance(value, (bytes, bytearray)):
 			value = value.decode('ascii')
 		return value
-
-	def colander_type(self):
-		return colander.String(encoding='ascii')
 
 class ASCIIText(types.TypeDecorator):
 	"""
@@ -550,12 +549,9 @@ class ASCIIText(types.TypeDecorator):
 	def process_result_value(self, value, dialect):
 		if value is None:
 			return None
-		if isinstance(value, bytes):
+		if isinstance(value, (bytes, bytearray)):
 			value = value.decode('ascii')
 		return value
-
-	def colander_type(self):
-		return colander.String(encoding='ascii')
 
 @compiles(EnumSymbol)
 def compile_enumsym(element, compiler, **kw):
@@ -600,7 +596,7 @@ class DeclEnumType(types.SchemaType, types.TypeDecorator):
 	def process_result_value(self, value, dialect):
 		if value is None:
 			return None
-		if isinstance(value, bytes):
+		if isinstance(value, (bytes, bytearray)):
 			value = value.decode('ascii')
 		return self.enum.from_string(value.strip())
 

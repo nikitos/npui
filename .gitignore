@@ -59,5 +59,15 @@ target/
 # Test deployments
 *-local.ini
 debug-shell.py
+run-celery-worker.sh
 /netprofile/data/
+/find.sh
+
+# NetProfile-specific
+README-NP.rst
+LICENSE.txt
+/netprofile_entities/netprofile_entities/static/img/flags
+!**/extjs/build/
+!**/extjs/build/packages/*/build/
+!**/extensible/lib/
 
