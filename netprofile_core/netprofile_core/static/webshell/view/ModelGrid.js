@@ -30,8 +30,9 @@ Ext.define('NetProfile.view.ModelGrid', {
 		'Ext.ux.window.CenterWindow',
 		'Ext.ux.RowExpander',
 		'NetProfile.view.ModelSelect',
-		'NetProfile.view.SimpleModelSelect',
-		'NetProfile.view.NullableComboBox'
+	        'NetProfile.view.SimpleModelSelect',
+	        'NetProfile.view.NullableComboBox',
+                'NetProfile.view.MultiModelSelect',
 	],
 	rowEditing: true,
 	simpleSearch: false,
