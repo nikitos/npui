@@ -35,10 +35,14 @@ __all__ = [
 
 import hashlib
 import datetime
-import smtplib
 import json 
 import transaction
 
+from pyramid_mailer import get_mailer
+from pyramid_mailer.message import (
+	Attachment,
+	Message
+)
 from pyramid.threadlocal import get_current_registry
 
 from sqlalchemy import (
@@ -107,6 +111,10 @@ _ = TranslationStringFactory('netprofile_mailing')
 def _wizcb_maillog_submit(wiz, step, act, val, req):
 	sess = DBSession()
 	cfg = get_current_registry().settings
+	mailer = get_mailer(req)
+
+	
+
 	userIDs = json.loads(val['userid'])
 	userlist = val['user']
 	templateName = val['template']
@@ -137,17 +145,25 @@ def _wizcb_maillog_submit(wiz, step, act, val, req):
 						print("################### USER'S PARENT HAVE NO EMAIL ATTRIBUTE #######################")
 	
 				if receiver is not None:
-					message = """From: From {0} <{1}>
-To: {2} <{3}>
-MIME-Version: 1.0
-Content-type: text/html
-Subject: {4}
+					msg_text = Attachment(data=templateBody,
+										  content_type='text/plain; charset=\'utf-8\'',
+										  disposition='inline',
+										  transfer_encoding='quoted-printable'
+										  )
+					msg_html = Attachment(data=templateBody,
+										  content_type='text/html; charset=\'utf-8\'',
+										  disposition='inline',
+										  transfer_encoding='quoted-printable'
+										  )
+					message = Message(
+						subject=(templateName),
+						sender=sender,
+						recipients=(receiver,),
+						body=msg_text,
+						html=msg_html
+						)
 
-{5}
-""".format(sendername, sender, user.nick, receiver,  templateName, templateBody)
-					
-					smtpObj = smtplib.SMTP(mailhost)
-					smtpObj.sendmail(sender, receiver, message)         
+					mailer.send(message)
 					resvalue['letteruid'] = hashlib.md5((templateBody + user.nick + str(datetime.datetime.now())).encode()).hexdigest()
 					em = ExtModel(MailingLog)
 					obj = MailingLog()
@@ -164,6 +180,7 @@ Subject: {4}
 		'do'     : 'close',
 		'reload' : True
 		}
+
 
 class MailingTemplate(Base):
 	"""
@@ -255,7 +272,6 @@ class MailingTemplate(Base):
 		)
 	def __str__(self):
 		return self.name
-
 
 class MailingLog(Base):
 	__tablename__ = 'mailing_log'
