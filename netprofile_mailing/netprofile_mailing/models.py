@@ -173,7 +173,6 @@ class MailingTemplate(Base):
 	__table_args__ = (
 		Comment('Mailing Templates'),
 		Index('mailing_templates_u_name', 'name', unique=True),
-		Index('mailing_templates_u_text', 'body', unique=True),
 		{
 			'mysql_engine'  : 'InnoDB',
 			'mysql_charset' : 'utf8',
