@@ -2,7 +2,7 @@
 # -*- coding: utf-8; tab-width: 4; indent-tabs-mode: t -*-
 #
 # NetProfile: Hosts module - Models
-# © Copyright 2013-2014 Alex 'Unik' Unigovsky
+# © Copyright 2013-2015 Alex 'Unik' Unigovsky
 #
 # This file is part of NetProfile.
 # NetProfile is free software: you can redistribute it and/or
@@ -28,6 +28,7 @@ from __future__ import (
 )
 
 __all__ = [
+	'DomainService',
 	'Host',
 	'HostGroup',
 	'Service',
@@ -136,10 +137,10 @@ class Host(Base):
 				'cap_delete'    : 'HOSTS_DELETE',
 				'menu_name'     : _('Hosts'),
 				'show_in_menu'  : 'modules',
-				'menu_order'    : 10,
 				'menu_main'     : True,
 				'default_sort'  : ({ 'property': 'name', 'direction': 'ASC' },),
 				'grid_view'     : (
+					'hostid',
 					MarkupColumn(
 						name='name',
 						header_string=_('Name'),
@@ -147,8 +148,9 @@ class Host(Base):
 						column_flex=3,
 						sortable=True
 					),
-					'group', 'entity'
+					'domain', 'group', 'entity'
 				),
+				'grid_hidden'   : ('hostid', 'domain'),
 				'form_view'     : (
 					'name', 'domain',
 					'group', 'entity',
@@ -210,7 +212,8 @@ class Host(Base):
 		nullable=False,
 		info={
 			'header_string' : _('Domain'),
-			'filter_type'   : 'list'
+			'filter_type'   : 'list',
+			'column_flex'   : 2
 		}
 	)
 	name = Column(
@@ -354,6 +357,15 @@ class Host(Base):
 		passive_deletes=True
 	)
 
+	@property
+	def real(self):
+		if not self.original:
+			return self
+		h = self
+		while h.original:
+			h = h.original
+		return h
+
 	def __str__(self):
 		if self.domain:
 			return '%s.%s' % (
@@ -381,9 +393,9 @@ class HostGroup(Base):
 				'cap_delete'    : 'HOSTS_GROUPS_DELETE',
 				'menu_name'     : _('Host Groups'),
 				'show_in_menu'  : 'admin',
-				'menu_order'    : 10,
 				'default_sort'  : ({ 'property': 'name', 'direction': 'ASC' },),
-				'grid_view'     : ('name', 'public'),
+				'grid_view'     : ('hgid', 'name', 'public'),
+				'grid_hidden'   : ('hgid',),
 				'form_view'     : (
 					'name', 'public',
 					'startoffset', 'endoffset',
@@ -534,9 +546,9 @@ class ServiceType(Base):
 				'cap_delete'    : 'SERVICES_TYPES_DELETE',
 				'menu_name'     : _('Service Types'),
 				'show_in_menu'  : 'admin',
-				'menu_order'    : 20,
 				'default_sort'  : ({ 'property': 'name', 'direction': 'ASC' },),
-				'grid_view'     : ('abbrev', 'name', 'proto', 'port_start', 'port_end'),
+				'grid_view'     : ('stid', 'abbrev', 'name', 'proto', 'port_start', 'port_end'),
+				'grid_hidden'   : ('stid',),
 				'form_view'     : ('abbrev', 'name', 'proto', 'port_start', 'port_end', 'alias'),
 				'easy_search'   : ('abbrev', 'name'),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
@@ -569,7 +581,8 @@ class ServiceType(Base):
 		Comment('Service type name'),
 		nullable=False,
 		info={
-			'header_string' : _('Name')
+			'header_string' : _('Name'),
+			'column_flex'   : 1
 		}
 	)
 	protocol = Column(
@@ -634,6 +647,21 @@ class ServiceType(Base):
 			)
 		return str(self.name)
 
+	@property
+	def record_name(self):
+		rrn = []
+		if self.abbreviation:
+			rrn.append('_' + self.abbreviation)
+		if self.protocol != ServiceProtocol.none:
+			rrn.append('_' + self.protocol.name)
+		return '.'.join(rrn)
+
+	@property
+	def port_range(self):
+		if self.start_port and self.end_port and (self.start_port <= self.end_port):
+			return range(self.start_port, self.end_port + 1)
+		return ()
+
 class Service(Base):
 	"""
 	Service object.
@@ -641,8 +669,9 @@ class Service(Base):
 	__tablename__ = 'services_def'
 	__table_args__ = (
 		Comment('Services'),
-		Index('services_def_u_service', 'hostid', 'stid', unique=True),
+		Index('services_def_u_service', 'hostid', 'stid', 'domainid', unique=True),
 		Index('services_def_i_stid', 'stid'),
+		Index('services_def_i_domainid', 'domainid'),
 		{
 			'mysql_engine'  : 'InnoDB',
 			'mysql_charset' : 'utf8',
@@ -653,8 +682,9 @@ class Service(Base):
 				'cap_edit'      : 'SERVICES_EDIT',
 				'cap_delete'    : 'SERVICES_DELETE',
 				'menu_name'     : _('Service Types'),
-				'grid_view'     : ('host', 'type', 'priority', 'weight', 'vis'),
-				'form_view'     : ('host', 'type', 'priority', 'weight', 'vis'),
+				'grid_view'     : ('sid', 'host', 'domain', 'type', 'priority', 'weight', 'vis'),
+				'grid_hidden'   : ('sid',),
+				'form_view'     : ('host', 'domain', 'type', 'priority', 'weight', 'vis'),
 				'create_wizard' : SimpleWizard(title=_('Add new service'))
 			}
 		}
@@ -693,6 +723,20 @@ class Service(Base):
 			'column_flex'   : 1
 		}
 	)
+	domain_id = Column(
+		'domainid',
+		UInt32(),
+		ForeignKey('domains_def.domainid', name='services_def_fk_domainid', ondelete='CASCADE', onupdate='CASCADE'),
+		Comment('Alternate domain ID'),
+		nullable=True,
+		default=None,
+		server_default=text('NULL'),
+		info={
+			'header_string' : _('Domain'),
+			'filter_type'   : 'none',
+			'column_flex'   : 1
+		}
+	)
 	priority = Column(
 		UInt32(),
 		Comment('Service priority'),
@@ -723,6 +767,119 @@ class Service(Base):
 		info={
 			'header_string' : _('Visibility')
 		}
+	)
+
+	domain = relationship(
+		'Domain',
+		backref=backref(
+			'srv_records',
+			cascade='all, delete-orphan',
+			passive_deletes=True
+		)
+	)
+
+	@property
+	def service_domain(self):
+		if self.domain:
+			return self.domain
+		return self.host.domain
+
+class DomainService(Base):
+	"""
+	Domain service object.
+	"""
+	__tablename__ = 'domains_hosts'
+	__table_args__ = (
+		Comment('Domains-hosts linkage'),
+		Index('domains_hosts_u_dhl', 'domainid', 'hostid', 'hltypeid', unique=True),
+		Index('domains_hosts_i_hostid', 'hostid'),
+		Index('domains_hosts_i_hltypeid', 'hltypeid'),
+		{
+			'mysql_engine'  : 'InnoDB',
+			'mysql_charset' : 'utf8',
+			'info'          : {
+				'cap_menu'      : 'BASE_DOMAINS',
+				'cap_read'      : 'DOMAINS_LIST',
+				'cap_create'    : 'DOMAINS_EDIT',
+				'cap_edit'      : 'DOMAINS_EDIT',
+				'cap_delete'    : 'DOMAINS_EDIT',
+				'menu_name'     : _('Services'),
+				'grid_view'     : ('domain', 'host', 'type'),
+				'form_view'     : ('domain', 'host', 'type'),
+				'create_wizard' : SimpleWizard(title=_('Add new domain service'))
+			}
+		}
+	)
+	id = Column(
+		'dhid',
+		UInt32(),
+		Sequence('domains_hosts_dhid_seq'),
+		Comment('Domain-host linkage ID'),
+		primary_key=True,
+		nullable=False,
+		info={
+			'header_string' : _('ID')
+		}
+	)
+	domain_id = Column(
+		'domainid',
+		UInt32(),
+		ForeignKey('domains_def.domainid', name='domains_hosts_fk_domainid', ondelete='CASCADE', onupdate='CASCADE'),
+		Comment('Domain ID'),
+		nullable=False,
+		info={
+			'header_string' : _('Domain'),
+			'filter_type'   : 'none',
+			'column_flex'   : 1
+		}
+	)
+	host_id = Column(
+		'hostid',
+		UInt32(),
+		ForeignKey('hosts_def.hostid', name='domains_hosts_fk_hostid', onupdate='CASCADE', ondelete='CASCADE'),
+		Comment('Host ID'),
+		nullable=False,
+		info={
+			'header_string' : _('Host'),
+			'filter_type'   : 'none',
+			'column_flex'   : 1
+		}
+	)
+	type_id = Column(
+		'hltypeid',
+		UInt32(),
+		ForeignKey('domains_hltypes.hltypeid', name='domains_hosts_fk_hltypeid', onupdate='CASCADE'),
+		Comment('Domain-host linkage type'),
+		nullable=False,
+		info={
+			'header_string' : _('Type'),
+			'filter_type'   : 'list',
+			'column_flex'   : 1
+		}
+	)
+
+	domain = relationship(
+		'Domain',
+		innerjoin=True,
+		backref=backref(
+			'services',
+			cascade='all, delete-orphan',
+			passive_deletes=True
+		)
+	)
+	host = relationship(
+		'Host',
+		innerjoin=True,
+		backref=backref(
+			'domain_services',
+			cascade='all, delete-orphan',
+			passive_deletes=True
+		)
+	)
+	type = relationship(
+		'DomainServiceType',
+		innerjoin=True,
+		backref='services'
 	)
 
 HostCreateAliasProcedure = SQLFunction(

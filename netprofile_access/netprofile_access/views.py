@@ -216,7 +216,7 @@ def client_download(request):
 	mode = request.matchdict['mode']
 	try:
 		objid = int(request.matchdict['id'])
-	except ValueError:
+	except (TypeError, ValueError):
 		raise HTTPForbidden('Invalid download link')
 	sess = DBSession()
 	ret = request.run_hook('access.cl.download', mode, objid, request, sess)
@@ -232,7 +232,7 @@ def client_delete(request):
 	mode = request.matchdict['mode']
 	try:
 		objid = int(request.matchdict['id'])
-	except ValueError:
+	except (TypeError, ValueError):
 		return False
 	sess = DBSession()
 	ret = request.run_hook('access.cl.download', mode, objid, request, sess)
@@ -283,6 +283,7 @@ def client_login(request):
 		'can_usesocial'  : can_use_socialnetworks,
 		'login_providers': login_providers,
 		'can_recover'    : can_recover,
+		'maillogin'   	 : maillogin,
 		'cur_loc'        : cur_locale,
 		'comb_js'        : comb_js
 	}
@@ -623,18 +624,6 @@ def client_register(request):
 			name_family = request.POST.get('name_family', '')
 			name_given = request.POST.get('name_given', '')
 			name_middle = request.POST.get('name_middle', '')
-			l = len(login)
-			if (l == 0) or (l > 254):
-				errors['user'] = _('Invalid field length')
-			elif not maillogin and not _re_login.match(login):
-				errors['user'] = _('Invalid character used in username')
-			l = len(passwd)
-			if l < min_pwd_len:
-				errors['pass'] = _('Password is too short')
-			elif l > 254:
-				errors['pass'] = _('Password is too long')
-			if passwd != passwd2:
-				errors['pass2'] = _('Passwords do not match')
 			l = len(email)
 			if (l == 0) or (l > 254):
 				errors['email'] = _('Invalid field length')
@@ -642,6 +631,20 @@ def client_register(request):
 				errors['email'] = _('Invalid e-mail format')
 			if maillogin:
 				login = email
+			else:
+				l = len(login)
+				if (l == 0) or (l > 254):
+					errors['user'] = _('Invalid field length')
+				elif _re_login.match(login):
+					errors['user'] = _('Invalid character used in username')
+			l = len(passwd)
+			if l < min_pwd_len:
+				errors['pass'] = _('Password is too short')
+			elif l > 254:
+				errors['pass'] = _('Password is too long')
+			if passwd != passwd2:
+				errors['pass2'] = _('Passwords do not match')
+			
 			l = len(name_family)
 			if (l == 0) or (l > 254):
 				errors['name_family'] = _('Invalid field length')
@@ -846,6 +849,7 @@ def client_restorepass(request):
 	change_pass = asbool(cfg.get('netprofile.client.password_recovery.change_password', True))
 	must_recaptcha = asbool(cfg.get('netprofile.client.password_recovery.recaptcha.enabled', False))
 	maillogin = asbool(cfg.get('netprofile.client.email_as_username', False))
+	
 	errors = {}
 	if not can_rp:
 		return HTTPSeeOther(location=request.route_url('access.cl.login'))
@@ -870,18 +874,19 @@ def client_restorepass(request):
 		if len(errors) == 0:
 			login = request.POST.get('user', '')
 			email = request.POST.get('email', '')
-			if maillogin:
-				login = email
-			l = len(login)
-			if (l == 0) or (l > 254):
-				errors['user'] = _('Invalid field length')
-			elif not _re_login.match(login):
-				errors['user'] = _('Invalid character used in username')
 			l = len(email)
 			if (l == 0) or (l > 254):
 				errors['email'] = _('Invalid field length')
 			elif not _re_email.match(email):
 				errors['email'] = _('Invalid e-mail format')
+			if maillogin:
+				login = email
+			else:
+				l = len(login)
+				if (l == 0) or (l > 254):
+					errors['user'] = _('Invalid field length')
+				elif not _re_login.match(login):
+					errors['user'] = _('Invalid character used in username')
 		if len(errors) == 0:
 			sess = DBSession()
 			for acc in sess.query(AccessEntity)\

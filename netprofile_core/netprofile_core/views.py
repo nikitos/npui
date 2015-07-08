@@ -2,7 +2,7 @@
 # -*- coding: utf-8; tab-width: 4; indent-tabs-mode: t -*-
 #
 # NetProfile: Core module - Views
-# © Copyright 2013-2014 Alex 'Unik' Unigovsky
+# © Copyright 2013-2015 Alex 'Unik' Unigovsky
 #
 # This file is part of NetProfile.
 # NetProfile is free software: you can redistribute it and/or
@@ -30,20 +30,21 @@ from __future__ import (
 import json
 import logging
 import datetime as dt
+from collections import (
+	defaultdict,
+	Iterable
+)
 from dateutil.parser import parse as dparse
 
 from pyramid.response import Response
+from pyramid.security import has_permission
 from pyramid.i18n import get_locale_name
 from pyramid.view import (
 	forbidden_view_config,
 	notfound_view_config,
 	view_config
 )
-from pyramid.security import (
-	authenticated_userid,
-	forget,
-	remember
-)
+from pyramid.security import authenticated_userid
 from pyramid.httpexceptions import (
 	HTTPForbidden,
 	HTTPFound,
@@ -53,17 +54,28 @@ from pyramid.httpexceptions import (
 
 from sqlalchemy import (
 	and_,
-	or_
+	or_,
+	func
 )
 from sqlalchemy.orm import undefer
 
 from netprofile import locale_neg
 from netprofile import PY3
+from netprofile.common.auth import (
+	auth_add,
+	auth_remove
+)
 from netprofile.common.util import make_config_dict
 from netprofile.common.modules import IModuleManager
 from netprofile.common.hooks import register_hook
 from netprofile.db.connection import DBSession
+from netprofile.ext.data import ExtModel
 from netprofile.ext.direct import extdirect_method
+from netprofile.ext.wizards import (
+	ExtJSWizardField,
+	Step,
+	Wizard
+)
 from netprofile.dav import DAVMountResponse
 
 from .models import (
@@ -84,7 +96,8 @@ from .models import (
 	UserSettingType,
 	UserState,
 
-	F_DEFAULT_FILES
+	F_DEFAULT_FILES,
+	secpol_errors
 )
 
 from pyramid.i18n import (
@@ -113,20 +126,34 @@ def home_screen(request):
 	}
 	return tpldef
 
-@forbidden_view_config()
+@notfound_view_config(vhost='MAIN', renderer='netprofile_core:templates/404.mak')
+def do_notfound(request):
+	mmgr = request.registry.getUtility(IModuleManager)
+	lang = get_locale_name(request)
+	request.response.status_code = 404
+	return {
+		'res_css' : mmgr.get_css(request),
+		'res_js'  : mmgr.get_js(request),
+		'res_ljs' : mmgr.get_local_js(request, lang),
+		'cur_loc' : lang
+	}
+
+@forbidden_view_config(vhost='MAIN', renderer='netprofile_core:templates/403.mak')
 def do_forbidden(request):
-	if authenticated_userid(request):
-		return HTTPForbidden()
-	loc = request.route_url('core.login', _query=(('next', request.path),))
-	return HTTPSeeOther(location=loc)
+	mmgr = request.registry.getUtility(IModuleManager)
+	lang = get_locale_name(request)
+	request.response.status_code = 403
+	return {
+		'res_css' : mmgr.get_css(request),
+		'res_js'  : mmgr.get_js(request),
+		'res_ljs' : mmgr.get_local_js(request, lang),
+		'cur_loc' : lang
+	}
 
 @view_config(route_name='core.login', renderer='netprofile_core:templates/login.mak')
 def do_login(request):
-	nxt = request.params.get('next')
-	if (not nxt) or (not nxt.startswith('/')):
-		nxt = request.route_url('core.home')
 	if authenticated_userid(request):
-		return HTTPFound(location=nxt)
+		return HTTPFound(location=request.route_url('core.home'))
 	login = ''
 	did_fail = False
 	cur_locale = locale_neg(request)
@@ -143,19 +170,13 @@ def do_login(request):
 			q = sess.query(User).filter(User.state == UserState.active).filter(User.enabled == True).filter(User.login == login)
 			for user in q:
 				if user.check_password(passwd, hash_con, salt_len):
-					headers = remember(request, login)
-					if 'auth.acls' in request.session:
-						del request.session['auth.acls']
-					if 'auth.settings' in request.session:
-						del request.session['auth.settings']
-					return HTTPFound(location=nxt, headers=headers)
+					return auth_add(request, login, 'core.home')
 		did_fail = True
 
 	mmgr = request.registry.getUtility(IModuleManager)
 
 	return {
 		'login'   : login,
-		'next'    : nxt,
 		'failed'  : did_fail,
 		'res_css' : mmgr.get_css(request),
 		'res_js'  : mmgr.get_js(request),
@@ -165,21 +186,13 @@ def do_login(request):
 
 @view_config(route_name='core.noop', permission='USAGE')
 def do_noop(request):
-	if request.referer:
-		return HTTPFound(location=request.referer)
+	# Force locale renegotiation if necessary
+	request.locale_name
 	return HTTPFound(location=request.route_url('core.home'))
 
 @view_config(route_name='core.logout')
 def do_logout(request):
-	if 'auth.acls' in request.session:
-		del request.session['auth.acls']
-	if 'auth.settings' in request.session:
-		del request.session['auth.settings']
-	headers = forget(request)
-	request.session.invalidate()
-	request.session.new_csrf_token()
-	loc = request.route_url('core.login')
-	return HTTPFound(location=loc, headers=headers)
+	return auth_remove(request, 'core.login')
 
 @view_config(route_name='core.js.webshell', renderer='netprofile_core:templates/webshell.mak', permission='USAGE')
 def js_webshell(request):
@@ -193,6 +206,8 @@ def js_webshell(request):
 		'res_ctl' : mmgr.get_controllers(request),
 		'rt_host' : rtcfg.get('host', 'localhost'),
 		'rt_port' : rtcfg.get('port', 8808),
+		'pw_age'  : request.session.get('sess.pwage', 'ok'),
+		'pw_days' : request.session.get('sess.pwdays', 0),
 		'modules' : mmgr.get_module_browser()
 	}
 
@@ -208,9 +223,20 @@ def wellknown_redirect(request):
 		return HTTPFound(location=request.route_url('core.dav', traverse=()))
 	return HTTPNotFound()
 
+# No authentication!
+@view_config(route_name='core.logout.direct', renderer='json')
+def do_logout_extdirect(request):
+	return {
+		'type' : 'event',
+		'name' : 'sesstimeout'
+	}
+
 @view_config(route_name='core.file.download', permission='FILES_LIST')
 def file_dl(request):
-	file_id = request.matchdict.get('fileid', 0)
+	try:
+		file_id = int(request.matchdict.get('fileid', 0))
+	except (TypeError, ValueError):
+		raise KeyError('Invalid file ID')
 	if file_id <= 0:
 		raise KeyError('Invalid file ID')
 	sess = DBSession()
@@ -247,30 +273,169 @@ def file_ul(request):
 		obj.folder = folder
 		sess.add(obj)
 		obj.set_from_file(fo.file, request.user, sess)
-	return Response(html_escape(json.dumps({
+	res = Response(html_escape(json.dumps({
 		'success' : True,
 		'msg'     : 'File(s) uploaded'
 	}), False))
+	res.headerlist.append(('X-Frame-Options', 'SAMEORIGIN'))
+	return res
 
 @view_config(route_name='core.file.mount', permission='FILES_LIST')
 def file_mnt(request):
-	ff_id = 0
-	try:
-		ff_id = int(request.matchdict.get('ffid', 0))
-	except ValueError:
-		pass
-	sess = DBSession()
-	ff = sess.query(FileFolder).get(ff_id)
-	if not ff.allow_traverse(request):
-		raise HTTPForbidden()
-	path = '/'.join(ff.get_uri()[1:] + [''])
-	resp = DAVMountResponse(
-		request=request,
-		path=path,
-		username=request.user.login
-	)
+	ff_id = request.matchdict.get('ffid')
+	if ff_id == 'root':
+		if not request.user.root_readable:
+			raise HTTPForbidden()
+		resp = DAVMountResponse(
+			request=request,
+			path='/',
+			username=request.user.login
+		)
+	else:
+		try:
+			ff_id = int(ff_id)
+		except (TypeError, ValueError):
+			raise HTTPNotFound()
+		sess = DBSession()
+		ff = sess.query(FileFolder).get(ff_id)
+		if not ff.allow_traverse(request):
+			raise HTTPForbidden()
+		path = '/'.join(ff.get_uri()[1:] + [''])
+		resp = DAVMountResponse(
+			request=request,
+			path=path,
+			username=request.user.login
+		)
 	resp.make_body()
+	resp.headerlist.append(('X-Frame-Options', 'SAMEORIGIN'))
 	return resp
+
+@view_config(route_name='core.export', permission='USAGE')
+def data_export(request):
+	moddef = request.matchdict.get('module')
+	objcls = request.matchdict.get('model')
+	if (not moddef) or (not objcls):
+		return HTTPNotFound()
+	mmgr = request.registry.getUtility(IModuleManager)
+	mb = mmgr.get_module_browser()
+	if moddef not in mb:
+		return HTTPNotFound()
+	mod = mb[moddef]
+	if objcls not in mod:
+		return HTTPNotFound()
+	model = mod[objcls]
+	if model.export_view is None:
+		return HTTPForbidden()
+	rcap = model.cap_read
+	if rcap and (not has_permission(rcap, request.context, request)):
+		return HTTPForbidden()
+	csrf = request.POST.get('csrf')
+	fmt = request.POST.get('format')
+	params = request.POST.get('params')
+	if (not csrf) or (csrf != request.get_csrf()):
+		return HTTPForbidden()
+	if not fmt:
+		raise ValueError('No export format specified')
+	fmt = mmgr.get_export_format(fmt)
+	return fmt.export(model, json.loads(params), request)
+
+@extdirect_method('User', 'get_chpass_wizard', request_as_last_param=True, permission='USAGE', session_checks=False)
+def dyn_user_chpass_wizard(request):
+	sess = DBSession()
+	loc = get_localizer(request)
+	model = ExtModel(User)
+	user = request.user
+	wiz = Wizard(
+		Step(
+			ExtJSWizardField({
+				'xtype'      : 'passwordfield',
+				'name'       : 'oldpass',
+				'allowBlank' : False,
+				'triggers'   : None,
+				'fieldLabel' : loc.translate(_('Old password')),
+				'maxLength'  : 255,
+				'value'      : '',
+				'emptyValue' : ''
+			}),
+			ExtJSWizardField({
+				'xtype'      : 'passwordfield',
+				'name'       : 'newpass1',
+				'allowBlank' : False,
+				'triggers'   : None,
+				'fieldLabel' : loc.translate(_('New password')),
+				'maxLength'  : 255,
+				'value'      : '',
+				'emptyValue' : ''
+			}),
+			ExtJSWizardField({
+				'xtype'      : 'passwordfield',
+				'name'       : 'newpass2',
+				'allowBlank' : False,
+				'triggers'   : None,
+				'fieldLabel' : loc.translate(_('Repeat password')),
+				'maxLength'  : 255,
+				'value'      : '',
+				'emptyValue' : ''
+			})
+		),
+		validator='ChangePassword'
+	)
+	return {
+		'success' : True,
+		'fields'  : wiz.get_cfg(model, request, use_defaults=True),
+		'title'   : loc.translate(_('Change your password'))
+	}
+
+@extdirect_method('User', 'change_password', request_as_last_param=True, permission='USAGE', session_checks=False)
+def dyn_user_chpass_submit(values, request):
+	user = request.user
+	cfg = request.registry.settings
+	hash_con = cfg.get('netprofile.auth.hash', 'sha1')
+	salt_len = int(cfg.get('netprofile.auth.salt_length', 4))
+	old_pass = values.get('oldpass')
+	new_pass1 = values.get('newpass1')
+	new_pass2 = values.get('newpass2')
+	if (not old_pass) or (not user.check_password(old_pass, hash_con, salt_len)):
+		raise ValueError('Old password is invalid')
+	if (not new_pass1) or (not new_pass2) or (new_pass1 != new_pass2):
+		raise ValueError('New password is invalid')
+	secpol = user.effective_policy
+	if secpol:
+		if secpol.check_new_password(request, user, new_pass1, dt.datetime.now()) is not True:
+			raise ValueError('New password is invalid')
+	user.change_password(new_pass1, values, request)
+
+	return {
+		'success' : True,
+		'action'  : { 'exec' : 'afterSubmit' }
+	}
+
+@register_hook('core.validators.ChangePassword')
+def dyn_user_chpass_validate(ret, values, request):
+	loc = get_localizer(request)
+	errors = defaultdict(list)
+	user = request.user
+	cfg = request.registry.settings
+	hash_con = cfg.get('netprofile.auth.hash', 'sha1')
+	salt_len = int(cfg.get('netprofile.auth.salt_length', 4))
+	old_pass = values.get('oldpass')
+	new_pass1 = values.get('newpass1')
+	new_pass2 = values.get('newpass2')
+	if (not old_pass) or (not user.check_password(old_pass, hash_con, salt_len)):
+		errors['oldpass'].append(loc.translate(_('Old password is invalid.')))
+	if not new_pass1:
+		errors['newpass1'].append(loc.translate(_('New password can\'t be empty.')))
+	if not new_pass2:
+		errors['newpass2'].append(loc.translate(_('New password can\'t be empty.')))
+	if new_pass1 != new_pass2:
+		errors['newpass2'].append(loc.translate(_('Entered passwords differ.')))
+	if new_pass1:
+		secpol = user.effective_policy
+		if secpol:
+			checkpw = secpol.check_new_password(request, user, new_pass1, dt.datetime.now())
+			if checkpw is not True:
+				errors['newpass1'].extend(secpol_errors(checkpw, loc))
+	ret['errors'].update(errors)
 
 def dpane_simple(model, request):
 	tabs = []
@@ -279,27 +444,70 @@ def dpane_simple(model, request):
 		tabs, model, request
 	)
 	cont = {
-		'border' : 0,
+		'border' : False,
 		'layout' : {
 			'type'    : 'hbox',
 			'align'   : 'stretch',
-			'padding' : 4
+			'padding' : 0
 		},
 		'items' : [{
-			'xtype' : 'npform',
-			'flex'  : 2
-		}, {
-			'xtype' : 'splitter'
-		}, {
-			'xtype'  : 'tabpanel',
-			'flex'   : 3,
-			'items'  : tabs
+			'xtype'   : 'npform',
+			'flex'    : 2,
+			'padding' : '4 0 4 4'
 		}]
+	}
+	if len(tabs) > 0:
+		cont['items'].extend(({
+			'xtype'   : 'splitter'
+		}, {
+			'xtype'   : 'tabpanel',
+			'cls'     : 'np-subtab',
+			'border'  : False,
+			'flex'    : 3,
+			'items'   : tabs
+		}))
+	else:
+		cont['items'][0].update({
+			'padding'  : '4',
+			'defaults' : {
+				'anchor' : '50%'
+			}
+		})
+	request.run_hook(
+		'core.dpane.%s.%s' % (model.__parent__.moddef, model.name),
+		cont, model, request
+	)
+	return cont
+
+def dpane_wide_content(model, request):
+	loc = get_localizer(request)
+	tabs = [{
+		'xtype'   : 'npform',
+		'iconCls' : 'ico-props',
+		'border'  : True,
+		'padding' : '4',
+		'title'   : loc.translate(_('Properties'))
+	}]
+	request.run_hook(
+		'core.dpanetabs.%s.%s' % (model.__parent__.moddef, model.name),
+		tabs, model, request
+	)
+	cont = {
+		'xtype'  : 'tabpanel',
+		'cls'    : 'np-subtab',
+		'border' : False,
+		'items'  : tabs
 	}
 	request.run_hook(
 		'core.dpane.%s.%s' % (model.__parent__.moddef, model.name),
 		cont, model, request
 	)
+	if len(cont['items']) == 1:
+		cont['layout'] = 'fit'
+		del cont['xtype']
+		del cont['cls']
+		del cont['items'][0]['title']
+		del cont['items'][0]['iconCls']
 	return cont
 
 @extdirect_method('DataCache', 'save_ls', request_as_last_param=True, permission='USAGE')
@@ -336,7 +544,7 @@ def localstorage_load(request):
 		'message' : 'No such user or anonymous'
 	}
 
-@extdirect_method('CustomValidator', 'validate', request_as_last_param=True, permission='USAGE')
+@extdirect_method('CustomValidator', 'validate', request_as_last_param=True, permission='USAGE', session_checks=False)
 def custom_valid(name, values, request):
 	ret = {
 		'success' : True,
@@ -494,7 +702,7 @@ def ff_tree_create(params, request):
 			'allow_read'     : ff.can_read(user),
 			'allow_write'    : ff.can_write(user),
 			'allow_traverse' : ff.can_traverse(user),
-			'parent_write'   : ff.parent.can_write(user) if ff.parent else False
+			'parent_write'   : ff.parent.can_write(user) if ff.parent else user.root_writable
 		})
 		total += 1
 	return {
@@ -513,6 +721,7 @@ def ff_tree_delete(params, request):
 		ff_id = rec.get('id')
 		if ff_id == 'root':
 			continue
+		ff_id = int(ff_id)
 		ff = sess.query(FileFolder).get(ff_id)
 		if ff is None:
 			raise KeyError('Unknown folder ID %d' % ff_id)
@@ -1126,14 +1335,28 @@ def _cal_events(evts, params, req):
 	ts_to = params.get('endDate')
 	if (not ts_from) or (not ts_to):
 		return
+	cals = params.get('cals')
+	if isinstance(cals, Iterable) and len(cals):
+		try:
+			cals = [int(cal[5:]) for cal in cals if cal[:5] == 'user-']
+		except (TypeError, ValueError):
+			cals = ()
+		if len(cals) == 0:
+			return
+	else:
+		cals = None
 	ts_from = dparse(ts_from).replace(hour=0, minute=0, second=0, microsecond=0)
 	ts_to = dparse(ts_to).replace(hour=23, minute=59, second=59, microsecond=999999)
 	sess = DBSession()
-	# FIXME: Add calendar-based filters
-	cal_ids = [cal.id for cal in sess.query(Calendar).filter(Calendar.user == req.user)]
+	cal_q = sess.query(Calendar).filter(Calendar.user == req.user)
+	if cals:
+		cal_q = cal_q.filter(Calendar.id.in_(cals))
+	cal_ids = [cal.id for cal in cal_q]
 	for cali in sess.query(CalendarImport).filter(CalendarImport.user_id == req.user.id):
 		cal = cali.calendar
 		if cal.user == req.user:
+			continue
+		if cals and (cal.id not in cals):
 			continue
 		if not cal.can_read(req.user):
 			continue
@@ -1162,19 +1385,23 @@ def _cal_events(evts, params, req):
 		evts.append(ev)
 
 def _ev_set(sess, ev, params, req):
-	cal_id = params.get('CalendarId', '')
-	if (not cal_id) or (cal_id[:5] != 'user-'):
-		return False
-	try:
-		cal_id = int(cal_id[5:])
-	except ValueError:
-		return False
-	cal = sess.query(Calendar).get(cal_id)
-	if (cal is None) or (not cal.can_write(req.user)):
-		return False
-	if ev.calendar and (ev.calendar is not cal):
-		if not ev.calendar.can_write(req.user):
+	user = req.user
+	if ev.id:
+		if (not ev.calendar) or (not ev.calendar.can_write(user)):
 			return False
+	cal_id = params.get('CalendarId', '')
+	if cal_id:
+		if cal_id[:5] != 'user-':
+			return False
+		try:
+			cal_id = int(cal_id[5:])
+		except (TypeError, ValueError):
+			return False
+		cal = sess.query(Calendar).get(cal_id)
+		if (cal is None) or (not cal.can_write(user)):
+			return False
+		ev.calendar = cal
+
 	val = params.get('Title', False)
 	if val:
 		ev.summary = val
@@ -1184,8 +1411,6 @@ def _ev_set(sess, ev, params, req):
 	val = params.get('Notes', False)
 	if val:
 		ev.description = val
-	if ev.calendar is not cal:
-		ev.calendar = cal
 	val = params.get('Location', False)
 	if val:
 		ev.location = val
@@ -1248,16 +1473,40 @@ def _cal_events_delete(params, req):
 	sess.delete(ev)
 	return True
 
+@register_hook('core.validators.ImportCalendar')
+def import_calendar_validator(ret, values, request):
+	loc = get_localizer(request)
+	errors = defaultdict(list)
+	if ('caldef' not in values) or (values['caldef'][:5] != 'user-'):
+		errors['caldef'].append(loc.translate(_('Invalid calendar selected.')))
+	else:
+		try:
+			cal_id = int(values['caldef'][5:])
+		except (TypeError, ValueError):
+			errors['caldef'].append(loc.translate(_('Invalid calendar selected.')))
+		else:
+			sess = DBSession()
+			cal = sess.query(Calendar).get(cal_id)
+			if (not cal) or (not cal.can_read(request.user)):
+				errors['caldef'].append(loc.translate(_('Invalid calendar selected.')))
+			else:
+				cnt = sess.query(func.count('*')).select_from(CalendarImport).filter(
+					CalendarImport.user == request.user,
+					CalendarImport.calendar == cal
+				).scalar()
+				if cnt > 0:
+					errors['caldef'].append(loc.translate(_('You have already imported this calendar.')))
+	ret['errors'].update(errors)
+
 @register_hook('np.menu')
 def _menu_custom(name, menu, req, extb):
 	if name != 'modules':
 		return
 	loc = get_localizer(req)
-	menu.insert(0, {
+	menu.append({
 		'leaf'     : False,
 		'expanded' : True,
 		'xview'    : 'calendar',
-		'order'    : 1,
 		'iconCls'  : 'ico-mod-calendar',
 		'text'     : loc.translate(_('Events')),
 		'id'       : 'event',

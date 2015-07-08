@@ -2,7 +2,7 @@
 # -*- coding: utf-8; tab-width: 4; indent-tabs-mode: t -*-
 #
 # NetProfile: Dial-Up module - Models
-# © Copyright 2013 Alex 'Unik' Unigovsky
+# © Copyright 2013-2015 Alex 'Unik' Unigovsky
 #
 # This file is part of NetProfile.
 # NetProfile is free software: you can redistribute it and/or
@@ -88,9 +88,9 @@ class NAS(Base):
 				'cap_delete'    : 'NAS_DELETE',
 				'menu_name'     : _('Network Access Servers'),
 				'show_in_menu'  : 'admin',
-				'menu_order'    : 10,
 				'default_sort'  : ({ 'property': 'idstr', 'direction': 'ASC' },),
-				'grid_view'     : ('idstr',),
+				'grid_view'     : ('nasid', 'idstr'),
+				'grid_hidden'   : ('nasid',),
 				'form_view'     : ('idstr', 'descr'),
 				'easy_search'   : ('idstr',),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
@@ -116,7 +116,8 @@ class NAS(Base):
 		Comment('Network access server identification string'),
 		nullable=False,
 		info={
-			'header_string' : _('ID String')
+			'header_string' : _('ID String'),
+			'column_flex'   : 1
 		}
 	)
 	description = Column(
@@ -168,9 +169,9 @@ class IPPool(Base):
 				'cap_delete'    : 'IPPOOLS_DELETE',
 				'menu_name'     : _('IP Address Pools'),
 				'show_in_menu'  : 'admin',
-				'menu_order'    : 20,
 				'default_sort'  : ({ 'property': 'name', 'direction': 'ASC' },),
-				'grid_view'     : ('name',),
+				'grid_view'     : ('poolid', 'name'),
+				'grid_hidden'   : ('poolid',),
 				'form_view'     : ('name', 'ip6prefix', 'ip6plen', 'descr'),
 				'easy_search'   : ('name',),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
@@ -196,7 +197,8 @@ class IPPool(Base):
 		Comment('IP address pool name'),
 		nullable=False,
 		info={
-			'header_string' : _('Name')
+			'header_string' : _('Name'),
+			'column_flex'   : 1
 		}
 	)
 	ipv6_prefix = Column(
@@ -268,7 +270,8 @@ class NASPool(Base):
 				'cap_delete'    : 'NAS_EDIT',
 				'menu_name'     : _('NAS IP Pools'),
 				'default_sort'  : ({ 'property': 'nasid', 'direction': 'ASC' },),
-				'grid_view'     : ('nas', 'pool'),
+				'grid_view'     : ('npid', 'nas', 'pool'),
+				'grid_hidden'   : ('npid',),
 				'form_view'     : ('nas', 'pool'),
 				'create_wizard' : SimpleWizard(title=_('Add new NAS IP pool'))
 			}
@@ -293,7 +296,8 @@ class NASPool(Base):
 		Comment('Network access server ID'),
 		nullable=False,
 		info={
-			'header_string' : _('NAS')
+			'header_string' : _('NAS'),
+			'column_flex'   : 1
 		}
 	)
 	pool_id = Column(
@@ -303,7 +307,8 @@ class NASPool(Base):
 		Comment('IP address pool ID'),
 		nullable=False,
 		info={
-			'header_string' : _('Pool')
+			'header_string' : _('Pool'),
+			'column_flex'   : 1
 		}
 	)
 

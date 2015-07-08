@@ -28,6 +28,7 @@ from __future__ import (
 )
 
 import hashlib
+import datetime as dt
 
 from netprofile import PY3
 if PY3:
@@ -54,10 +55,15 @@ from sqlalchemy.orm.exc import NoResultFound
 
 from netprofile.common.auth import (
 	DigestAuthenticationPolicy,
-	PluginAuthenticationPolicy
+	PluginAuthenticationPolicy,
+	PluginPolicySelected,
+	auth_remove
 )
 from netprofile.db.connection import DBSession
-from netprofile.db.clauses import SetVariable
+from netprofile.db.clauses import (
+	SetVariable,
+	SetVariables
+)
 from .models import (
 	NPSession,
 	Privilege,
@@ -215,27 +221,82 @@ def _auth_to_db(event):
 	user = request.user
 
 	if user:
-		sess.execute(SetVariable('accessuid', user.id))
-		sess.execute(SetVariable('accessgid', user.group_id))
-		sess.execute(SetVariable('accesslogin', user.login))
-
-		skey = request.registry.settings.get('redis.sessions.cookie_name')
-		if not skey:
-			skey = request.registry.settings.get('session.key')
-		assert skey is not None, 'Session cookie name does not exist'
-		sname = request.cookies.get(skey)
-		if sname:
-			try:
-				npsess = sess.query(NPSession).filter(NPSession.session_name == sname).one()
-				npsess.update_time()
-			except NoResultFound:
-				npsess = user.generate_session(request, sname)
-				sess.add(npsess)
-			request.np_session = npsess
+		try:
+			sess.execute(SetVariables(
+				accessuid=user.id,
+				accessgid=user.group_id,
+				accesslogin=user.login
+			))
+		except NotImplementedError:
+			sess.execute(SetVariable('accessuid', user.id))
+			sess.execute(SetVariable('accessgid', user.group_id))
+			sess.execute(SetVariable('accesslogin', user.login))
 	else:
-		sess.execute(SetVariable('accessuid', 0))
-		sess.execute(SetVariable('accessgid', 0))
-		sess.execute(SetVariable('accesslogin', '[GUEST]'))
+		try:
+			sess.execute(SetVariables(
+				accessuid=0,
+				accessgid=0,
+				accesslogin='[GUEST]'
+			))
+		except NotImplementedError:
+			sess.execute(SetVariable('accessuid', 0))
+			sess.execute(SetVariable('accessgid', 0))
+			sess.execute(SetVariable('accesslogin', '[GUEST]'))
+
+def _goto_login(request):
+	if request.matched_route:
+		if request.matched_route.name == 'extrouter':
+			raise auth_remove(request, 'core.logout.direct')
+	raise auth_remove(request, 'core.login')
+
+def _check_session(event):
+	request = event.request
+	if not isinstance(event.policy, SessionAuthenticationPolicy):
+		return
+	user = request.user
+	route_name = None
+	if request.matched_route:
+		route_name = request.matched_route.name
+		# TODO: unhardcode excluded routes
+		if route_name in ('core.login', 'debugtoolbar', 'core.logout.direct', 'core.wellknown'):
+			return
+	if not user:
+		_goto_login(request)
+	settings = request.registry.settings
+
+	skey = settings.get('redis.sessions.cookie_name')
+	if not skey:
+		skey = settings.get('session.key')
+	assert skey is not None, 'Session cookie name does not exist'
+
+	sess = DBSession()
+	sname = request.cookies.get(skey)
+	if sname:
+		now = dt.datetime.now()
+		oldsess = True
+
+		try:
+			npsess = sess.query(NPSession).filter(NPSession.session_name == sname).one()
+		except NoResultFound:
+			npsess = user.generate_session(request, sname, now)
+			if npsess is None:
+				_goto_login(request)
+			oldsess = False
+			sess.add(npsess)
+
+		if oldsess and (not npsess.check_request(request, now)):
+			_goto_login(request)
+
+		pw_age = request.session.get('sess.pwage', 'ok')
+		if pw_age == 'force':
+			# TODO: unhardcode excluded routes
+			if route_name not in ('extrouter', 'extapi', 'core.home', 'core.js.webshell'):
+				_goto_login(request)
+
+		npsess.update_time(now)
+		request.np_session = npsess
+	else:
+		_goto_login(request)
 
 def includeme(config):
 	"""
@@ -268,4 +329,5 @@ def includeme(config):
 	config.set_authentication_policy(authn_policy)
 
 	config.add_subscriber(_auth_to_db, ContextFound)
+	config.add_subscriber(_check_session, PluginPolicySelected)
 

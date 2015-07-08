@@ -2,7 +2,7 @@
 # -*- coding: utf-8; tab-width: 4; indent-tabs-mode: t -*-
 #
 # NetProfile: ExtJS schema and data generation
-# © Copyright 2013-2014 Alex 'Unik' Unigovsky
+# © Copyright 2013-2015 Alex 'Unik' Unigovsky
 #
 # This file is part of NetProfile.
 # NetProfile is free software: you can redistribute it and/or
@@ -29,13 +29,17 @@ from __future__ import (
 
 import importlib
 import logging
-import colander
 import decimal
 
 import datetime as dt
 from dateutil.tz import tzlocal
 from dateutil.parser import parse as dparse
-from collections import OrderedDict
+from collections import (
+	defaultdict,
+	Iterable,
+	Mapping,
+	OrderedDict
+)
 
 from sqlalchemy import (
 	BigInteger,
@@ -87,6 +91,7 @@ from netprofile.db.fields import (
 	IPv4Address,
 	IPv6Address,
 	IPv6Offset,
+	MACAddress,
 	Money,
 	NPBoolean,
 	Traffic,
@@ -95,7 +100,6 @@ from netprofile.db.fields import (
 	UInt32,
 	UInt64
 )
-from netprofile.db.colander import SQLAlchemySchemaNode
 
 # USE ME!
 #from sqlalchemy.orm import (
@@ -127,8 +131,6 @@ _INTEGER_SET = (
 	Int32,
 	Int64,
 	Integer,
-	IPv6Offset, #?
-	Traffic, #?
 	UInt8,
 	UInt16,
 	UInt32,
@@ -138,7 +140,8 @@ _INTEGER_SET = (
 _DECIMAL_SET = (
 	IPv6Offset,
 	Money,
-	Numeric
+	Numeric,
+	Traffic
 )
 
 _STRING_SET = (
@@ -168,7 +171,7 @@ _IPADDR_SET = (
 )
 
 _COLUMN_XTYPE_MAP = {
-	BigInteger   : 'numbercolumn',
+	BigInteger   : 'numbercolumn', # ?
 	Boolean      : 'checkcolumn',
 	DeclEnumType : 'enumcolumn',
 	Enum         : 'enumcolumn',
@@ -176,27 +179,25 @@ _COLUMN_XTYPE_MAP = {
 	Int8         : 'numbercolumn',
 	Int16        : 'numbercolumn',
 	Int32        : 'numbercolumn',
-	Int64        : 'numbercolumn',
+	Int64        : 'numbercolumn', # ?
 	Integer      : 'numbercolumn',
-	IPv4Address  : 'ipaddrcolumn',
-	IPv6Address  : 'ipaddrcolumn',
 	IPv6Offset   : 'numbercolumn',
-	Money        : 'numbercolumn',
+	Money        : 'numbercolumn', # ?
 	NPBoolean    : 'checkcolumn',
-	Numeric      : 'numbercolumn',
+	Numeric      : 'numbercolumn', # ?
 	SmallInteger : 'numbercolumn',
 	TIMESTAMP    : 'datecolumn',
-	Traffic      : 'numbercolumn',
+	Traffic      : 'numbercolumn', # ?
 	UInt8        : 'numbercolumn',
 	UInt16       : 'numbercolumn',
 	UInt32       : 'numbercolumn',
-	UInt64       : 'numbercolumn'
+	UInt64       : 'numbercolumn' # ?
 }
 
 _EDITOR_XTYPE_MAP = {
 	ASCIITinyText : 'textareafield',
 	ASCIIText     : 'textareafield',
-	BigInteger    : 'numberfield',
+	BigInteger    : 'numberfield', # ?
 	Boolean       : 'checkbox',
 	Date          : 'datefield',
 	DateTime      : 'datetimefield',
@@ -206,26 +207,28 @@ _EDITOR_XTYPE_MAP = {
 	Int8          : 'numberfield',
 	Int16         : 'numberfield',
 	Int32         : 'numberfield',
-	Int64         : 'numberfield',
+	Int64         : 'numberfield', # ?
 	Integer       : 'numberfield',
 	IPv4Address   : 'ipv4field',
+	IPv6Address   : 'ipv6field',
 	IPv6Offset    : 'numberfield',
-	Money         : 'numberfield',
+	Money         : 'numberfield', # ?
 	NPBoolean     : 'checkbox',
-	Numeric       : 'numberfield',
+	Numeric       : 'numberfield', # ?
 	SmallInteger  : 'numberfield',
 	Time          : 'timefield',
 	TIMESTAMP     : 'datetimefield',
-	Traffic       : 'numberfield',
+	Traffic       : 'numberfield', # ?
 	UInt8         : 'numberfield',
 	UInt16        : 'numberfield',
 	UInt32        : 'numberfield',
-	UInt64        : 'numberfield',
+	UInt64        : 'numberfield', # ?
 	UnicodeText   : 'textareafield'
 }
 
+# Default is 'string'
 _JS_TYPE_MAP = {
-	BigInteger   : 'int',
+	BigInteger   : 'int', # ?
 	Boolean      : 'boolean',
 	Date         : 'date',
 	DateTime     : 'date',
@@ -233,11 +236,10 @@ _JS_TYPE_MAP = {
 	Money        : 'float', # ?
 	NPBoolean    : 'boolean',
 	Numeric      : 'float', # ?
-	Numeric      : 'float', # ?
 	Int8         : 'int',
 	Int16        : 'int',
 	Int32        : 'int',
-	Int64        : 'int',
+	Int64        : 'int', # ?
 	Integer      : 'int',
 	IPv4Address  : 'ipv4',
 	IPv6Address  : 'ipv6',
@@ -245,11 +247,42 @@ _JS_TYPE_MAP = {
 	PickleType   : 'auto',
 	SmallInteger : 'int',
 	TIMESTAMP    : 'date',
-	Traffic      : 'int',
+	Traffic      : 'int', # ?
 	UInt8        : 'int',
 	UInt16       : 'int',
 	UInt32       : 'int',
-	UInt64       : 'int'
+	UInt64       : 'int' # ?
+}
+
+# boolean date list number string
+# Default is 'string'
+_FILTER_TYPE_MAP = {
+	BigInteger   : 'npnumber', # ?
+	Boolean      : 'boolean',
+	Date         : 'npdate',
+	DateTime     : 'npdate',
+	DeclEnumType : 'list',
+	Float        : 'npnumber',
+	Money        : 'npnumber', # ?
+	NPBoolean    : 'boolean',
+	Numeric      : 'npnumber', # ?
+	Int8         : 'npnumber',
+	Int16        : 'npnumber',
+	Int32        : 'npnumber',
+	Int64        : 'npnumber', # ?
+	Integer      : 'npnumber',
+	IPv4Address  : 'ipv4',
+	IPv6Address  : 'ipv6',
+	IPv6Offset   : 'npnumber', # ?
+	PickleType   : 'none',
+	SmallInteger : 'npnumber',
+#	Time         : FIXME,
+	TIMESTAMP    : 'npdate',
+	Traffic      : 'npnumber', # ?
+	UInt8        : 'npnumber',
+	UInt16       : 'npnumber',
+	UInt32       : 'npnumber',
+	UInt64       : 'npnumber' # ?
 }
 
 _DATE_FMT_MAP = {
@@ -271,6 +304,14 @@ def _table_to_class(tname):
 		if getattr(cls, '__tablename__', None) == tname:
 			return cls
 	raise KeyError(tname)
+
+def _recursive_update(dest, src):
+	for k, v in src.items():
+		if isinstance(v, Mapping):
+			dest[k] = _recursive_update(dest.get(k, {}), v)
+		else:
+			dest[k] = v
+	return dest
 
 class ExtColumn(object):
 	MIN_PIXELS = 40
@@ -326,7 +367,12 @@ class ExtColumn(object):
 
 	@property
 	def filter_type(self):
-		return self.column.info.get('filter_type', 'default')
+		typecls = self.column.type.__class__
+		ft = self.column.info.get('filter_type', _FILTER_TYPE_MAP.get(typecls, 'string'))
+		# TODO: remove this hack after all models are updated
+		if ft == 'list':
+			return 'nplist'
+		return ft
 
 	@property
 	def reader(self):
@@ -335,6 +381,10 @@ class ExtColumn(object):
 	@property
 	def writer(self):
 		return self.column.info.get('writer')
+
+	@property
+	def validator(self):
+		return self.column.info.get('validator')
 
 	@property
 	def pass_request(self):
@@ -355,6 +405,8 @@ class ExtColumn(object):
 	@property
 	def length(self):
 		typecls = self.column.type.__class__
+		if typecls is MACAddress:
+			return 17
 		try:
 			if typecls is DeclEnumType:
 				xlen = 0
@@ -456,32 +508,6 @@ class ExtColumn(object):
 			return _JS_TYPE_MAP[cls]
 		return 'string'
 
-	@property
-	def colander_type(self):
-		cls = self.column.type.__class__
-		ccls = colander.String
-		if hasattr(self.column.type, 'impl'):
-			cls = self.column.type.impl
-			if isinstance(cls, TypeEngine):
-				cls = cls.__class__
-		if cls in _COLANDER_TYPE_MAP:
-			ccls = _COLANDER_TYPE_MAP[cls]
-		elif issubclass(cls, Boolean):
-			ccls = colander.Boolean
-		elif issubclass(cls, Date):
-			ccls = colander.Date
-		elif issubclass(cls, DateTime):
-			ccls = colander.DateTime
-		elif issubclass(cls, Float):
-			ccls = colander.Float
-		elif issubclass(cls, Integer):
-			ccls = colander.Integer
-		elif issubclass(cls, Numeric):
-			ccls = colander.Decimal
-		elif issubclass(cls, Time):
-			ccls = colander.Time
-		return ccls()
-
 	def _set_min_max(self, conf):
 		typecls = self.column.type.__class__
 		vmin = self.column.info.get('min_value', None)
@@ -566,7 +592,7 @@ class ExtColumn(object):
 				return False
 			return bool(param)
 		if issubclass(typecls, _DECIMAL_SET):
-			return decimal.Decimal(param)
+			return decimal.Decimal(str(param))
 		if typecls is DeclEnumType:
 			if isinstance(param, EnumSymbol):
 				return param
@@ -580,10 +606,18 @@ class ExtColumn(object):
 				param = param.replace(tzinfo=None)
 			return param
 		if issubclass(typecls, _IPADDR_SET):
+			# TODO: axe out this nonsense as soon as both IP fields are checked in
 			if isinstance(param, dict):
-				if 'value' not in param:
+				if 'octets' in param:
+					param = param['octets']
+				elif 'parts' in param:
+					param = [byte for word in param['parts'] for byte in (word >> 8, word % 256)]
+				elif 'value' in param:
+					param = param['value']
+				else:
 					return None
-				param = param['value']
+				if isinstance(param, (list, tuple)):
+					param = bytes(param)
 			if issubclass(typecls, IPv4Address):
 				return ipaddr.IPv4Address(param)
 			if issubclass(typecls, IPv6Address):
@@ -594,39 +628,6 @@ class ExtColumn(object):
 				return None
 			return int(param)
 		return param
-
-	def get_colander_validations(self):
-		typecls = self.column.type.__class__
-		ret = []
-		if issubclass(typecls, _INTEGER_SET):
-			vmin = getattr(typecls, 'MIN_VALUE')
-			vmax = getattr(typecls, 'MAX_VALUE')
-			if vmax is None:
-				if issubclass(typecls, SmallInteger):
-					if getattr(self.column.type, 'unsigned', False):
-						vmin = UInt16.MIN_VALUE
-						vmax = UInt16.MAX_VALUE
-					else:
-						vmin = Int16.MIN_VALUE
-						vmax = Int16.MAX_VALUE
-				elif issubclass(typecls, Integer):
-					if getattr(self.column.type, 'unsigned', False):
-						vmin = UInt32.MIN_VALUE
-						vmax = UInt32.MAX_VALUE
-					else:
-						vmin = Int32.MIN_VALUE
-						vmax = Int32.MAX_VALUE
-			if (vmin is not None) or (vmax is not None):
-				ret.append(colander.Range(min=vmin, max=vmax))
-		if issubclass(typecls, _STRING_SET):
-			vmin = None
-			vmax = self.length
-			if not self.nullable:
-				vmin = 1
-			ret.append(colander.Length(min=vmin, max=vmax))
-		if typecls is DeclEnumType:
-			ret.append(colander.OneOf(self.column.type.enum.values()))
-		return ret
 
 	def get_model_validations(self):
 		typecls = self.column.type.__class__
@@ -699,7 +700,7 @@ class ExtColumn(object):
 		if (self.column.primary_key) or \
 				(len(self.column.foreign_keys) > 0): # add check for read-only non-pk fields
 			hret = {
-				'xtype'      : 'hidden',
+				'xtype'      : 'hidden' if in_form else 'numberfield',
 				'editable'   : False,
 				'allowBlank' : self.nullable,
 				'name'       : self.name
@@ -741,8 +742,6 @@ class ExtColumn(object):
 			conf['vtype'] = val
 		if issubclass(typecls, _BOOLEAN_SET):
 			conf.update({
-				'cls'            : 'x-grid-checkheader-editor',
-				'anchor'         : '0%',
 				'inputValue'     : 'true',
 				'uncheckedValue' : 'false'
 			})
@@ -758,7 +757,7 @@ class ExtColumn(object):
 			self._set_min_max(conf)
 		elif issubclass(typecls, _DECIMAL_SET):
 			conf.update({
-				'allowDecimals' : True
+				'allowDecimals' : (True if self.column.type.scale > 0 else False)
 			})
 			if self.unsigned:
 				conf['allowNegative'] = False
@@ -788,14 +787,10 @@ class ExtColumn(object):
 				}
 			})
 		elif issubclass(typecls, _DATE_SET):
-			conf.update({
-				'format'       : _DATE_FMT_MAP[typecls],
-				'submitFormat' : _DATE_FMT_MAP[typecls]
-			})
+			conf['submitFormat'] = _DATE_FMT_MAP[typecls]
 			# FIXME: configurable formats
 			init_fmt = None
 			if issubclass(typecls, (DateTime, TIMESTAMP, Date)):
-				conf['format'] = 'd.m.Y'
 				if issubclass(typecls, Date):
 					init_fmt = '%d.%m.%Y'
 				else:
@@ -808,6 +803,53 @@ class ExtColumn(object):
 					conf['value'] = conf['value'].isoformat()
 				else:
 					conf['value'] = conf['value'].strftime(init_fmt)
+		if ed_xtype in ('tinymce_field', 'tinymce_textarea'):
+			tinymce_cfg = {
+				'theme'                  : 'modern',
+				'schema'                 : 'html5',
+				'language'               : req.current_locale.language,
+				'spellchecker_language'  : req.current_locale.language,
+				'spellchecker_languages' : ','.join('%s=%s' % (
+					req.current_locale.languages[lang],
+					lang,
+				) for lang in req.locales),
+				# To implement:
+				#  Plugins: fullpage,importcss,save,spellchecker,template,textpattern,visualblocks(maybe base tpl on this)
+				#  color_picker_callback: JS code
+				#  contextmenu: 'a b c | d e'
+				# fullpage_default_*:
+				# fullpage_hide_in_source_view:
+				# image_list: list of images? or a callback?
+				# image_class_list: link classes
+				# insertdatetime_formats: formats to insert as (for split button)
+				# insertdatetime_dateformat:
+				# insertdatetime_timeformat:
+				# link_list:
+				# target_list:
+				# rel_list:
+				# link_class_list:
+				# media_*:
+				# nonbreaking_force_tab: insert series of nbsps on tab, probably not needed
+				# pagebreak_separator:
+				# paste_*:
+				# spellchecker_*:
+				# table_*:
+				#
+				# Ignored for now: autoresize,autosave,bbcode,directionality,emoticons
+				'plugins' : [
+					'advlist', 'anchor', 'autolink', 'charmap', 'code', 'colorpicker',
+					'contextmenu', 'fullscreen', 'hr', 'image', 'insertdatetime', 'link',
+					'lists', 'media', 'nonbreaking', 'pagebreak', 'paste', 'preview',
+					'print', 'searchreplace', 'tabfocus', 'table', 'textcolor',
+					'visualblocks', 'visualchars', 'wordcount'
+				],
+				'toolbar' : [
+					'undo redo | print preview searchreplace | styleselect | bold italic underline strikethrough forecolor backcolor | alignleft aligncenter alignright alignjustify subscript superscript | fullscreen code',
+					'bullist numlist outdent indent | image media | link anchor | table hr nonbreaking'
+				],
+				'image_advtab' : True
+			}
+			conf['tinyMCEConfig'] = tinymce_cfg
 		if in_form:
 			conf['fieldLabel'] = loc.translate(self.header_string)
 			val = self.pixels
@@ -817,7 +859,7 @@ class ExtColumn(object):
 					conf['width'] += 25
 		val = self.editor_config
 		if val:
-			conf.update(val)
+			_recursive_update(conf, val)
 		return conf
 
 	def get_reader_cfg(self):
@@ -825,7 +867,7 @@ class ExtColumn(object):
 		conf = {
 			'name'       : self.name,
 			'allowBlank' : self.nullable,
-			'useNull'    : self.nullable,
+			'allowNull'  : self.nullable,
 			'type'       : self.js_type
 		}
 		if conf['type'] == 'date':
@@ -834,13 +876,21 @@ class ExtColumn(object):
 		if val is not None:
 			if type(val) in {int, str, list, dict, bool}:
 				conf['defaultValue'] = val
+		fks = self.column.foreign_keys
 		if self.model.__mapper__.polymorphic_on is not None:
 			if self.model.__mapper__.polymorphic_on.name == self.name:
 				conf.update({
 					'allowBlank'   : False,
-					'useNull'      : False,
+					'allowNull'    : False,
 					'defaultValue' : self.model.__mapper__.polymorphic_identity
 				})
+		elif len(fks) == 1:
+			fk = list(fks)[0]
+			cls = _table_to_class(fk.column.table.name)
+			conf['reference'] = 'NetProfile.model.{0}.{1}'.format(
+				cls.__moddef__,
+				cls.__name__
+			)
 		return conf
 
 	def get_column_cfg(self, req):
@@ -864,6 +914,9 @@ class ExtColumn(object):
 		xt = self.column_xtype
 		if xt is not None:
 			conf['xtype'] = xt
+		if xt == 'checkcolumn':
+			# FIXME: maybe selectively allow in-place editing?
+			conf['readOnly'] = True
 		tpl = self.template
 		if tpl:
 			if isinstance(tpl, TemplateObject):
@@ -886,10 +939,16 @@ class ExtColumn(object):
 		cw = self.cell_class
 		if cw is not None:
 			conf['tdCls'] = cw
+		ftype = self.filter_type
+		filter_conf = None
+		if ftype == 'none':
+			conf['filterable'] = False
+		else:
+			filter_conf = { 'type' : ftype }
 		if issubclass(typecls, _DECIMAL_SET):
 			conf.update({
 				'align'  : 'right',
-				'format' : '0.00'
+				'format' : ('0.00' if self.column.type.scale > 0 else '0')
 			})
 		if issubclass(typecls, _INTEGER_SET):
 			conf.update({
@@ -897,16 +956,20 @@ class ExtColumn(object):
 				'format' : '0'
 			})
 		if issubclass(typecls, _DATE_SET):
-			conf.update({
-				'format' : _DATE_FMT_MAP[typecls]
-			})
+			def_width = 80
 			# FIXME: configurable formats
 			if issubclass(typecls, (DateTime, TIMESTAMP)):
-				conf['format'] = 'd.m.Y H:i:s'
+				conf['format'] = loc.translate(_('Y-m-d H:i:s'))
+				def_width = 115
 			if issubclass(typecls, Date):
-				conf['format'] = 'd.m.Y'
+				conf['format'] = loc.translate(_('Y-m-d'))
 			if issubclass(typecls, Time):
-				conf['format'] = 'H:i:s'
+				conf['format'] = loc.translate(_('H:i:s'))
+				def_width = 70
+			if 'width' not in conf:
+				conf['width'] = def_width
+		if filter_conf:
+			conf['filter'] = filter_conf
 		if typecls is DeclEnumType:
 			chx = {}
 			chf = []
@@ -914,30 +977,13 @@ class ExtColumn(object):
 				tdescr = loc.translate(sym.description)
 				chx[sym.value] = tdescr
 				chf.append({ 'id' : sym.value, 'value' : tdescr })
-			conf['valueMap'] = chx
-			conf['filter'] = {
-				'type'       : 'list',
-				'options'    : chf,
-				'labelField' : 'value'
-			}
-		return conf
-
-	def get_related_cfg(self):
-		fks = self.column.foreign_keys
-		if len(fks) == 0:
-			return None
-		conf = []
-		for fk in fks:
-			cls = _table_to_class(fk.column.table.name)
-			conf.append({
-				'type'       : 'belongsTo',
-				'model'      : 'NetProfile.model.%s.%s' % (
-					cls.__moddef__,
-					cls.__name__
-				),
-				'foreignKey' : self.name,
-				'primaryKey' : fk.column.name
-			})
+			if ('filter' in conf) and (conf['filter']['type'] == 'nplist'):
+				conf['valueMap'] = chx
+				conf['filter'].update({
+					'idField'    : 'id',
+					'labelField' : 'value',
+					'options'    : chf
+				})
 		return conf
 
 	def append_data(self, obj):
@@ -956,6 +1002,10 @@ class ExtPseudoColumn(ExtColumn):
 
 	@property
 	def writer(self):
+		return None
+
+	@property
+	def validator(self):
 		return None
 
 	@property
@@ -999,10 +1049,6 @@ class ExtPseudoColumn(ExtColumn):
 		if not callable(self.column.parse):
 			return param
 		return self.column.parse(param)
-
-	def get_colander_validations(self):
-		# FIXME: add smth here
-		raise NotImplementedError('Colander support is missing for pseudo columns.')
 
 	def get_model_validations(self):
 		# FIXME: add smth here
@@ -1056,9 +1102,6 @@ class ExtPseudoColumn(ExtColumn):
 			conf['tdCls'] = cw
 		return conf
 
-	def get_related_cfg(self):
-		return []
-
 	def append_data(self, obj):
 		pass
 
@@ -1074,6 +1117,14 @@ class ExtRelationshipColumn(ExtColumn):
 		self.column = sqla_prop.local_columns.copy().pop()
 		self.model = sqla_model
 		self.value_attr = None
+
+	@property
+	def filter_type(self):
+		ft = self.column.info.get('filter_type', 'none')
+		# TODO: remove this hack after all models are updated
+		if ft == 'list':
+			return 'nplist'
+		return ft
 
 	def get_column_cfg(self, req):
 		conf = super(ExtRelationshipColumn, self).get_column_cfg(req)
@@ -1111,19 +1162,16 @@ class ExtManyToOneRelationshipColumn(ExtRelationshipColumn):
 		conf = super(ExtManyToOneRelationshipColumn, self).get_column_cfg(req)
 
 		ftype = self.filter_type
-		if ftype == 'none':
-			conf['filterable'] = False
-		if ftype == 'list':
+		if ftype == 'nplist':
 			rcol = self.prop.remote_side.copy().pop()
 			if rcol is not None:
 				rmodel = _table_to_class(rcol.table.name)
 				if rmodel is not None:
 					conf['filter'] = {
-						'queryIndex' : self.name,
-						'optStore'   : 'NetProfile.store.' + rmodel.__moddef__ + '.' + rmodel.__name__,
+						'type'       : 'nplist',
+						'optStore'   : 'NetProfile.store.{0}.{1}'.format(rmodel.__moddef__, rmodel.__name__),
 						'idField'    : rcol.name,
-						'labelField' : '__str__',
-						'type'       : 'list'
+						'labelField' : '__str__'
 					}
 
 		return conf
@@ -1167,7 +1215,7 @@ class ExtManyToOneRelationshipColumn(ExtRelationshipColumn):
 		return {
 			'name'       : self.prop.key,
 			'allowBlank' : self.nullable,
-			'useNull'    : self.nullable,
+			'allowNull'  : self.nullable,
 			'type'       : 'string',
 			'persist'    : False
 		}
@@ -1242,7 +1290,7 @@ class ExtOneToManyRelationshipColumn(ExtRelationshipColumn):
 		return {
 			'name'       : self.name,
 			'allowBlank' : True,
-			'useNull'    : True,
+			'allowNull'  : True,
 			'type'       : 'auto'
 		}
 
@@ -1328,10 +1376,6 @@ class ExtModel(object):
 		return self.model.__table__.info.get('menu_name', self.model.__name__)
 
 	@property
-	def menu_order(self):
-		return self.model.__table__.info.get('menu_order', 10)
-
-	@property
 	def menu_section(self):
 		return self.model.__table__.info.get('menu_section')
 
@@ -1376,6 +1420,10 @@ class ExtModel(object):
 		return self.model.__table__.info.get('wizards')
 
 	@property
+	def grid_hidden(self):
+		return self.model.__table__.info.get('grid_hidden', ())
+
+	@property
 	def grid_view(self):
 		return self.model.__table__.info.get('grid_view', ())
 
@@ -1387,8 +1435,19 @@ class ExtModel(object):
 		)
 
 	@property
+	def export_view(self):
+		return self.model.__table__.info.get(
+			'export_view',
+			self.model.__table__.info.get('grid_view', ())
+		)
+
+	@property
 	def extra_data(self):
 		return self.model.__table__.info.get('extra_data', ())
+
+	@property
+	def extra_actions(self):
+		return self.model.__table__.info.get('extra_actions', ())
 
 	def get_column(self, colname):
 		if isinstance(colname, PseudoColumn):
@@ -1471,6 +1530,7 @@ class ExtModel(object):
 
 	def get_column_cfg(self, req):
 		ret = []
+		hidden = self.grid_hidden
 		try:
 			cols = self.model.__table__.info['grid_view']
 		except KeyError:
@@ -1478,6 +1538,8 @@ class ExtModel(object):
 		for col in cols:
 			cdef = self.get_column(col).get_column_cfg(req)
 			if cdef is not None:
+				if col in hidden:
+					cdef['hidden'] = True
 				ret.append(cdef)
 		return ret
 
@@ -1495,7 +1557,7 @@ class ExtModel(object):
 			ret.append({
 				'name'       : '__str__',
 				'allowBlank' : True,
-				'useNull'    : True,
+				'allowNull'  : True,
 				'type'       : 'string',
 				'persist'    : False
 			})
@@ -1503,7 +1565,7 @@ class ExtModel(object):
 			ret.append({
 				'name'       : '__poly',
 				'allowBlank' : True,
-				'useNull'    : True,
+				'allowNull'  : True,
 				'type'       : 'auto',
 				'persist'    : False
 			})
@@ -1511,7 +1573,7 @@ class ExtModel(object):
 			ret.append({
 				'name'       : extra,
 				'allowBlank' : True,
-				'useNull'    : True,
+				'allowNull'  : True,
 				'type'       : 'auto',
 				'persist'    : False
 			})
@@ -1524,17 +1586,6 @@ class ExtModel(object):
 			for xf in xs:
 				ret.append(xf.get_cfg(req))
 			return ret
-
-	def get_related_cfg(self):
-		ret = []
-		for cname, col in self.get_columns().items():
-			colrel = col.get_related_cfg()
-			if colrel is not None:
-				ret.extend(colrel)
-		return ret
-
-	def get_colander_schema(self, **kwargs):
-		return SQLAlchemySchemaNode(self.model, **kwargs)
 
 	def get_model_validations(self):
 		ret = []
@@ -1607,83 +1658,76 @@ class ExtModel(object):
 
 	def _apply_filters(self, query, trans, params, pname='__filter'):
 		flist = params[pname]
-		for fcol in flist:
+		for fltr in flist:
+			fcol = fltr.get('property', None)
+			operator = fltr.get('operator', 'eq')
+			value = fltr.get('value', None)
 			if fcol in trans:
 				prop = trans[fcol]
 				coldef = self.model.__mapper__.c[prop.key]
 				colcls = coldef.type.__class__
 				col = getattr(self.model, prop.key)
 				extcol = self.get_column(fcol)
-				for fkey, fval in flist[fcol].items():
-					if fkey == 'type':
+
+				if isinstance(value, list):
+					if operator == 'in':
+						query = query.filter(col.in_(value))
 						continue
-					if isinstance(fval, list):
-						if fkey == 'in':
-							query = query.filter(col.in_(fval))
-							continue
-						if fkey == 'notin':
-							query = query.filter(not col.in_(fval))
-							continue
-						# parse_param chokes on list values (maybe fix?)
+					if operator == 'notin':
+						query = query.filter(not col.in_(value))
 						continue
-					fval = extcol.parse_param(fval)
-					if fkey == 'eq':
-						query = query.filter(col == fval)
+					# FIXME: parse_param chokes on list values
+					continue
+
+				value = extcol.parse_param(value)
+				if operator in ('eq', '=', '==', '==='):
+					query = query.filter(col == value)
+					continue
+				if operator in ('ne', '!=', '!=='):
+					query = query.filter(col != value)
+					continue
+				if issubclass(colcls, _DATE_SET):
+					if value.tzinfo is not None:
+						value = value.astimezone(tzlocal())
+					if value is None:
 						continue
-					if fkey == 'ne':
-						query = query.filter(col != fval)
+					if operator in ('gt', '>'):
+						query = query.filter(col > value)
+					if operator in ('lt', '<'):
+						query = query.filter(col < value)
+					if operator in ('ge', '>='):
+						query = query.filter(col >= value)
+					if operator in ('le', '<='):
+						query = query.filter(col <= value)
+					continue
+				if issubclass(colcls, _INTEGER_SET) or issubclass(colcls, _DECIMAL_SET) or issubclass(colcls, _IPADDR_SET):
+					if value is None:
 						continue
-					if issubclass(colcls, _DATE_SET):
-						#fval = dparse(fval)
-						if fval.tzinfo is not None:
-							fval = fval.astimezone(tzlocal())
-						if fval is None:
-							continue
-						if fkey == 'gt':
-							query = query.filter(col > fval)
-						if fkey == 'lt':
-							query = query.filter(col < fval)
-						if fkey == 'ge':
-							query = query.filter(col >= fval)
-						if fkey == 'le':
-							query = query.filter(col <= fval)
+					if operator in ('gt', '>'):
+						query = query.filter(col > value)
+					if operator in ('lt', '<'):
+						query = query.filter(col < value)
+					if operator in ('ge', '>='):
+						query = query.filter(col >= value)
+					if operator in ('le', '<='):
+						query = query.filter(col <= value)
+					continue
+				if issubclass(colcls, _STRING_SET):
+					if value is None:
 						continue
-					if issubclass(colcls, _INTEGER_SET) or issubclass(colcls, _DECIMAL_SET) or issubclass(colcls, _IPADDR_SET):
-						if fval is None:
-							continue
-						if fkey == 'gt':
-							query = query.filter(col > fval)
-							continue
-						if fkey == 'lt':
-							query = query.filter(col < fval)
-							continue
-						if fkey == 'ge':
-							query = query.filter(col >= fval)
-							continue
-						if fkey == 'le':
-							query = query.filter(col <= fval)
-							continue
-					if issubclass(colcls, _STRING_SET):
-						if fval is None:
-							continue
-						if fkey == 'contains':
-							query = query.filter(col.contains(fval))
-							continue
-						if fkey == 'ncontains':
-							query = query.filter(not col.contains(fval))
-							continue
-						if fkey == 'startswith':
-							query = query.filter(col.startswith(fval))
-							continue
-						if fkey == 'nstartswith':
-							query = query.filter(not col.startswith(fval))
-							continue
-						if fkey == 'endswith':
-							query = query.filter(col.endswith(fval))
-							continue
-						if fkey == 'nendswith':
-							query = query.filter(not col.endswith(fval))
-							continue
+					if operator in ('contains', 'like'):
+						query = query.filter(col.contains(value))
+					if operator in ('ncontains', 'notlike'):
+						query = query.filter(not col.contains(value))
+					if operator == 'startswith':
+						query = query.filter(col.startswith(value))
+					if operator == 'nstartswith':
+						query = query.filter(not col.startswith(value))
+					if operator == 'endswith':
+						query = query.filter(col.endswith(value))
+					if operator == 'nendswith':
+						query = query.filter(not col.endswith(value))
+					continue
 		return query
 
 	def _get_trans(self, cols):
@@ -1809,6 +1853,7 @@ class ExtModel(object):
 	def read_one(self, params, request):
 		logger.info('Running ExtDirect class:%s method:%s', self.name, 'read_one')
 		logger.debug('Params: %r', params)
+		raise RuntimeError('read_one() not implemented')
 
 	def set_values(self, obj, values, request, is_create=False):
 		cols = self.get_columns()
@@ -1875,7 +1920,8 @@ class ExtModel(object):
 						cols[p] = rcols[p]
 					elif p in self.model.__mapper__.attrs:
 						attr = self.model.__mapper__.attrs[p]
-						if len(attr.columns) > 0:
+						# FIXME: wtf is this?
+						if hasattr(attr, 'columns') and (len(attr.columns) > 0):
 							cols[p] = self.get_column(p)
 						else:
 							continue
@@ -1979,7 +2025,8 @@ class ExtModel(object):
 						cols[p] = rcols[p]
 					elif p in self.model.__mapper__.attrs:
 						attr = self.model.__mapper__.attrs[p]
-						if len(attr.columns) > 0:
+						# FIXME: wtf is this?
+						if hasattr(attr, 'columns') and (len(attr.columns) > 0):
 							cols[p] = self.get_column(p)
 						else:
 							continue
@@ -2090,28 +2137,43 @@ class ExtModel(object):
 		pkey = None
 		if (self.pk in values) and values[self.pk]:
 			pkey = cols[self.pk].parse_param(values[self.pk])
-		fields = {}
+		fields = defaultdict(list)
+		for name, col in cols.items():
+			valid = col.validator
+			if callable(valid) and (name in values):
+				vres = valid(self, name, values, request)
+				if vres:
+					if isinstance(vres, Iterable):
+						fields[name].extend(vres)
+					else:
+						fields[name].append(vres)
 		for index in self.u_idx:
 			has_all = True
+			has_defined = False
 			for ifld in index:
-				if (ifld not in values) or (ifld not in cols) or (ifld not in trans):
+				if (ifld not in cols) or (ifld not in trans):
 					has_all = False
-			if not has_all:
+					break
+				colval = values.get(ifld)
+				if colval is not None:
+					has_defined = True
+				elif not cols[ifld].nullable:
+					has_all = False
+					break
+			if (not has_all) or (not has_defined):
 				continue
 			q = sess.query(func.count('*')).select_from(self.model)
 			for ifld in index:
 				prop = trans[ifld]
 				extcol = cols[ifld]
 				col = getattr(self.model, prop.key)
-				q = q.filter(col == extcol.parse_param(values[ifld]))
+				q = q.filter(col == extcol.parse_param(values.get(ifld)))
 			if pkey is not None:
 				col = getattr(self.model, self.object_pk)
 				q = q.filter(col != pkey)
 			num = q.scalar()
 			if (num is not None) and (num > 0):
 				for ifld in index:
-					if ifld not in fields:
-						fields[ifld] = []
 					fields[ifld].append(loc.translate(_('This field must be unique.')))
 		request.run_hook('np.fields.validate', fields, values, request, self)
 		return {
@@ -2123,6 +2185,12 @@ class ExtModel(object):
 		logger.info('Running ExtDirect class:%s method:%s', self.name, 'get_create_wizard')
 		wiz = self.create_wizard
 		if wiz:
+			if not wiz.init_done:
+				request.run_hook(
+					'np.wizard.init.%s.%s' % (self.model.__moddef__, self.name),
+					wiz, self, request
+				)
+				wiz.init_done = True
 			title = wiz.title
 			if title:
 				loc = get_localizer(request)
@@ -2146,6 +2214,12 @@ class ExtModel(object):
 		wizdict = self.wizards
 		if wizdict and (wname in wizdict):
 			wiz = wizdict[wname]
+			if not wiz.init_done:
+				request.run_hook(
+					'np.wizard.init.%s.%s' % (self.model.__moddef__, self.name),
+					wiz, self, request
+				)
+				wiz.init_done = True
 			title = wiz.title
 			if title:
 				loc = get_localizer(request)
@@ -2169,7 +2243,13 @@ class ExtModel(object):
 		logger.debug('Params: %r', (pane_id, act, values))
 		wiz = self.create_wizard
 		if wiz:
-			ret = wiz.action(pane_id, act, values, request)
+			if not wiz.init_done:
+				request.run_hook(
+					'np.wizard.init.%s.%s' % (self.model.__moddef__, self.name),
+					wiz, self, request
+				)
+				wiz.init_done = True
+			ret = wiz.action(self, pane_id, act, values, request)
 			if ret:
 				request.run_hook('np.create_wizard.action', ret, wiz, pane_id, act, values, request, self)
 				return {
@@ -2184,7 +2264,13 @@ class ExtModel(object):
 		wizdict = self.wizards
 		if wizdict and (wname in wizdict):
 			wiz = wizdict[wname]
-			ret = wiz.action(pane_id, act, values, request)
+			if not wiz.init_done:
+				request.run_hook(
+					'np.wizard.init.%s.%s' % (self.model.__moddef__, self.name),
+					wiz, self, request
+				)
+				wiz.init_done = True
+			ret = wiz.action(self, pane_id, act, values, request)
 			if ret:
 				request.run_hook('np.wizard.action', ret, wiz, pane_id, act, values, request, self)
 				return {
@@ -2200,7 +2286,6 @@ class ExtModel(object):
 			ret = {
 				'id'      : xname,
 				'text'    : loc.translate(self.menu_name),
-				'order'   : self.menu_order,
 				'leaf'    : True,
 				'iconCls' : 'ico-mod-%s' % xname,
 				'xview'   : 'grid_%s_%s' % (self.__parent__.moddef, self.name)
@@ -2248,80 +2333,6 @@ class ExtModuleBrowser(object):
 	def __iter__(self):
 		return iter(self.mmgr.models[self.moddef])
 
-	def get_menu_tree(self, req, name):
-		ch = []
-		sch = {}
-		och = {}
-		menu_main = None
-		id_cache = {}
-		loc = get_localizer(req)
-		for model in self:
-			em = self[model]
-			cap = em.cap_menu
-			if cap and (not has_permission(cap, req.context, req)):
-				continue
-			mt = em.get_menu_tree(req, name)
-			if mt:
-				id_cache[mt['id']] = mt
-				if mt.get('main'):
-					del mt['main']
-					menu_main = mt
-					continue
-				if 'section' in mt:
-					sect = mt['section']
-					if sect not in sch:
-						sch[sect] = {
-							'text'     : loc.translate(sect),
-							'expanded' : True,
-							'children' : [],
-							'iconCls'  : 'ico-module'
-						}
-					sch[sect]['children'].append(mt)
-				elif 'parent' in mt:
-					parent = mt['parent']
-					del mt['parent']
-					if parent not in och:
-						och[parent] = []
-					och[parent].append(mt)
-				else:
-					ch.append(mt)
-		ext_children = {}
-		for parent, orphans in och.items():
-			if parent not in id_cache:
-				ext_children[parent] = orphans
-				continue
-			pnode = id_cache[parent]
-			pnode['leaf'] = False
-			pnode['expanded'] = True
-			if 'children' not in pnode:
-				pnode['children'] = []
-			pnode['children'].extend(sorted(orphans, key=lambda v: v['order']))
-		for sect in sch:
-			ss = sch[sect]
-			ss['children'] = sorted(ss['children'], key=lambda mt: mt['order'])
-			ss['order'] = sum([i['order'] for i in ss['children']]) // len(ss['children'])
-			ch.append(ss)
-		if (len(ch) > 0) or menu_main:
-			ret = {
-				'id'       : self.moddef,
-				'text'     : loc.translate(self.mmgr.loaded[self.moddef].name),
-				'expanded' : True,
-				'children' : sorted(ch, key=lambda mt: mt['order']),
-				'iconCls'  : 'ico-module'
-			}
-			if menu_main:
-				ret.update({
-					'iconCls' : menu_main['iconCls'],
-					'xview'   : menu_main['xview']
-				})
-				if 'children' in menu_main:
-					ret['children'].extend(menu_main['children'])
-			if len(ext_children) > 0:
-				ret['external'] = ext_children
-			return ret
-		if len(ext_children) > 0:
-			return { 'external' : ext_children }
-
 class ExtBrowser(object):
 	def __init__(self, mmgr):
 		self.mmgr = mmgr
@@ -2336,53 +2347,111 @@ class ExtBrowser(object):
 
 	def get_menu_data(self, request):
 		ret = []
-		for mname, menu in self.mmgr.menus.items():
+		for menu in self.mmgr.menu_generator(request):
 			if menu.perm and (not has_permission(menu.perm, request.context, request)):
 				continue
 			ret.append(menu)
 		return sorted(ret, key=lambda m: m.order)
 
 	def get_menu_tree(self, req, name):
-		if name not in self.mmgr.menus:
-			raise KeyError('Can\'t find menu \'%s\'' % name)
+		loc = get_localizer(req)
 		menu = []
-		external = {}
+		id_cache = {}
+		module_mains = {}
+		module_sections = defaultdict(dict)
+		module_children = defaultdict(list)
+		direct_children = defaultdict(list)
+
 		for module in self:
-			em = self[module]
-			mt = em.get_menu_tree(req, name)
-			if mt:
-				if 'external' in mt:
-					for mid, mitems in mt['external'].items():
-						if mid not in external:
-							external[mid] = []
-						external[mid].extend(mitems)
-					del mt['external']
-				if len(mt) > 0:
-					menu.append(mt)
+			extmodule = self[module]
+			for model in extmodule:
+				em = extmodule[model]
 
-		def find_node_by_id(menu, mid):
-			for item in menu:
-				if 'id' not in item:
+				cap = em.cap_menu
+				if cap and (not has_permission(cap, req.context, req)):
 					continue
-				if item['id'] == mid:
-					return item
-			for item in menu:
-				if 'children' not in item:
-					continue
-				recurse = find_node_by_id(item['children'], mid)
-				if recurse:
-					return recurse
 
-		for mid in external:
-			pnode = find_node_by_id(menu, mid)
-			if pnode:
-				pnode['leaf'] = False
-				pnode['expanded'] = True
-				if 'children' not in pnode:
-					pnode['children'] = []
-				pnode['children'].extend(sorted(external[mid], key=lambda v: v['order']))
+				item = em.get_menu_tree(req, name)
+				if not item:
+					continue
+
+				id_cache[item['id']] = item
+
+				if item.get('main'):
+					del item['main']
+					module_mains[module] = item
+					continue
+				if 'section' in item:
+					sect_name = item['section']
+					del item['section']
+					sections = module_sections[module]
+					if sect_name not in sections:
+						sections[sect_name] = {
+							'text'     : loc.translate(sect_name),
+							'expanded' : True,
+							'children' : [],
+							'iconCls'  : 'ico-module' # TODO: make this customizable
+						}
+					sections[sect_name]['children'].append(item)
+				elif 'parent' in item:
+					parent = item['parent']
+					del item['parent']
+					direct_children[parent].append(item)
+				else:
+					module_children[module].append(item)
+
+		for parent_id, items in direct_children.items():
+			if parent_id not in id_cache:
+				continue
+			parent = id_cache[parent_id]
+			if 'children' not in parent:
+				parent['children'] = []
+			if 'expanded' not in parent:
+				parent['expanded'] = True
+			if 'leaf' in parent:
+				del parent['leaf']
+			parent['children'].extend(sorted(items, key=lambda mt: mt['text']))
+
+		# TODO: implement per-user (or global) storable weights, and use them
+		#       in addition to these lambdas
+
+		for module in self:
+			children = module_children[module]
+			if module in module_mains:
+				module_menu = module_mains[module]
+				if 'leaf' in module_menu:
+					del module_menu['leaf']
+				module_menu['expanded'] = True
+			else:
+				module_menu = {
+					'id'       : module,
+					'text'     : loc.translate(self.mmgr.loaded[module].name),
+					'expanded' : True,
+					'iconCls'  : 'ico-module' # TODO: make this customizable
+				}
+
+			for sect in module_sections[module].values():
+				sect['children'] = sorted(sect['children'], key=lambda mt: mt['text'])
+				children.append(sect)
+
+			if module in direct_children:
+				children.extend(direct_children[module])
+
+			if (len(children) > 0) or (module in module_mains):
+				if 'children' not in module_menu:
+					module_menu['children'] = []
+				module_menu['children'].extend(children)
+				module_menu['children'] = sorted(module_menu['children'], key=lambda mt: mt['text'])
+				menu.append(module_menu)
 
 		req.run_hook('np.menu', name, menu, req, self)
+		return sorted(menu, key=lambda mt: mt['text'])
 
-		return menu
+	def get_export_menu(self, req):
+		return tuple(
+			fmt.export_panel(req, name)
+			for name, fmt
+			in sorted(self.mmgr.get_export_formats().items(), key=lambda x: x[0])
+			if fmt.enabled(req)
+		)
 

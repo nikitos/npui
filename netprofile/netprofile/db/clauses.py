@@ -2,7 +2,7 @@
 # -*- coding: utf-8; tab-width: 4; indent-tabs-mode: t -*-
 #
 # NetProfile: Custom clauses for SQLAlchemy
-# © Copyright 2013 Alex 'Unik' Unigovsky
+# © Copyright 2013-2015 Alex 'Unik' Unigovsky
 #
 # This file is part of NetProfile.
 # NetProfile is free software: you can redistribute it and/or
@@ -27,7 +27,11 @@ from __future__ import (
 	division
 )
 
-from sqlalchemy import DateTime
+from sqlalchemy import (
+	DateTime,
+	Numeric,
+	func
+)
 from sqlalchemy.sql.expression import (
 	ClauseElement,
 	Executable,
@@ -65,6 +69,25 @@ def visit_set_variable(element, compiler, **kw):
 		rvalue = compiler.render_literal_value(str(element.value), sqltypes.STRINGTYPE)
 	return 'SET %s = %s' % (element.name, rvalue)
 
+class SetVariables(Executable, ClauseElement):
+	def __init__(self, **kwargs):
+		self.values = kwargs
+
+@compiles(SetVariables, 'mysql')
+def visit_set_variables_mysql(element, compiler, **kw):
+	clauses = []
+	for name, rvalue in element.values.items():
+		if isinstance(rvalue, ClauseElement):
+			rvalue = compiler.process(rvalue)
+		else:
+			rvalue = compiler.render_literal_value(str(rvalue), sqltypes.STRINGTYPE)
+		clauses.append('@%s := %s' % (name, rvalue))
+	return 'SET ' + ', '.join(clauses)
+
+@compiles(SetVariables)
+def visit_set_variables(element, compiler, **kw):
+	raise NotImplementedError
+
 class IntervalSeconds(FunctionElement):
 	type = DateTime()
 	name = 'intervalseconds'
@@ -74,5 +97,16 @@ def visit_interval_seconds_mysql(element, compiler, **kw):
 	return '%s + INTERVAL %s SECOND' % (
 		compiler.process(element.clauses.clauses[0]),
 		compiler.process(element.clauses.clauses[1])
+	)
+
+class Binary16ToDecimal(FunctionElement):
+	type = Numeric(40, 0)
+	name = 'binary16todecimal'
+
+@compiles(Binary16ToDecimal, 'mysql')
+def visit_binary16_to_decimal(element, compiler, **kw):
+	proc = compiler.process(element.clauses.clauses[0])
+	return 'CAST(CONV(SUBSTRING(%s FROM 1 FOR 16), 16, 10) AS DECIMAL(40)) * 18446744073709551616 + CAST(CONV(SUBSTRING(%s FROM 17 FOR 16), 16, 10) AS DECIMAL(40))' % (
+		proc, proc
 	)
 

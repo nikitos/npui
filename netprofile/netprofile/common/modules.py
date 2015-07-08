@@ -2,7 +2,7 @@
 # -*- coding: utf-8; tab-width: 4; indent-tabs-mode: t -*-
 #
 # NetProfile: Module detection and loading
-# © Copyright 2013-2014 Alex 'Unik' Unigovsky
+# © Copyright 2013-2015 Alex 'Unik' Unigovsky
 #
 # This file is part of NetProfile.
 # NetProfile is free software: you can redistribute it and/or
@@ -103,7 +103,7 @@ class ModuleBase(object):
 	def get_sql_data(cls, modobj, sess):
 		pass
 
-	def get_menus(self):
+	def get_menus(self, request):
 		return ()
 
 	def get_js(self, request):
@@ -129,6 +129,9 @@ class ModuleBase(object):
 
 	def get_dav_plugins(self, request):
 		return {}
+
+	def get_task_imports(self):
+		return ()
 
 	def load(self):
 		pass
@@ -156,37 +159,12 @@ class ModuleManager(object):
 	and (un)installing modules.
 	"""
 
-	@classmethod
-	def prepare(cls):
-		"""
-		Perform module discovery without loading all the discovered
-		modules. Might be handy for various utility tasks.
-		"""
-		ret = {}
-
-		for ep in pkg_resources.iter_entry_points('netprofile.modules'):
-			mod_name = ep.name
-			mod_version = '0.0.0'
-
-			modcls = ep.load()
-			modprep = getattr(modcls, 'prepare', None)
-			if callable(modprep):
-				modprep()
-			func = getattr(modcls, 'version', None)
-			if callable(func):
-				mod_version = str(func())
-
-			ret[ep.name] = (mod_name, mod_version)
-
-		return ret
-
 	def __init__(self, cfg, vhost=None):
 		self.cfg = cfg
 		self.modules = {}
 		self.installed = None
 		self.loaded = {}
 		self.models = {}
-		self.menus = {}
 		if vhost is None:
 			sett = cfg.get_settings()
 			self.vhost = sett.get('netprofile.vhost', None)
@@ -248,10 +226,15 @@ class ModuleManager(object):
 			logger.error('Can\'t find module \'%s\'. Verify installation and try again.', moddef)
 			return False
 		if not self.is_installed(moddef, DBSession()):
-			logger.error('Can\'t load uninstalled module \'%s\'. Please install it first.', moddef)
+			if moddef != 'core':
+				logger.error('Can\'t load uninstalled module \'%s\'. Please install it first.', moddef)
 			return False
 		mstack.append(moddef)
-		modcls = self.modules[moddef].load()
+		try:
+			modcls = self.modules[moddef].load()
+		except ImportError:
+			logger.error('Can\'t load module \'%s\'. Verify installation and try again.', moddef)
+			return False
 		if not issubclass(modcls, ModuleBase):
 			logger.error('Module \'%s\' is invalid. Verify installation and try again.', moddef)
 			return False
@@ -274,8 +257,6 @@ class ModuleManager(object):
 		hm = self.cfg.registry.getUtility(IHookManager)
 		for model in mod.get_models():
 			self._import_model(moddef, model, mb, hm)
-		for menu in mod.get_menus():
-			self.menus[menu.name] = menu
 		return True
 
 	def load(self, moddef):
@@ -425,7 +406,10 @@ class ModuleManager(object):
 				))
 			self.modules[moddef] = ep
 
-		modcls = ep.load()
+		try:
+			modcls = ep.load()
+		except ImportError as e:
+			raise ModuleError('Can\'t locate ModuleBase class for module \'%s\'.' % (moddef,)) from e
 
 		get_deps = getattr(modcls, 'get_deps', None)
 		if callable(get_deps):
@@ -506,6 +490,13 @@ class ModuleManager(object):
 
 		return True
 
+	def assert_loaded(self, *mods):
+		if (len(mods) == 1) and isinstance(mods[0], (list, tuple, set)):
+			mods = mods[0]
+		not_loaded = set(mods) - set(self.loaded)
+		if len(not_loaded) > 0:
+			raise ModuleError('These modules aren\'t loaded, but are required: %s.' % (', '.join(not_loaded),))
+
 	def _import_model(self, moddef, model, mb, hm):
 		mname = model.__name__
 		model.__moddef__ = moddef
@@ -517,6 +508,32 @@ class ModuleManager(object):
 		Get module traversal helper.
 		"""
 		return ExtBrowser(self)
+
+	def get_export_formats(self):
+		"""
+		Get registered data export formats.
+		"""
+		ret = {}
+		for ep in pkg_resources.iter_entry_points('netprofile.export.formats'):
+			try:
+				cls = ep.load()
+				ret[ep.name] = cls()
+			except ImportError:
+				logger.error('Can\'t load export formatter \'%s\'.', moddef)
+		return ret
+
+	def get_export_format(self, name):
+		"""
+		Get registered data export format by name.
+		"""
+		eps = tuple(pkg_resources.iter_entry_points('netprofile.export.formats', name))
+		if len(eps) == 0:
+			raise ModuleError('Can\'t load export formatter \'%s\'.' % (name,))
+		try:
+			cls = eps[0].load()
+			return cls()
+		except ImportError:
+			raise ModuleError('Can\'t load export formatter \'%s\'.' % (name,))
 
 	def get_js(self, request):
 		"""
@@ -589,6 +606,24 @@ class ModuleManager(object):
 		for moddef, mod in self.loaded.items():
 			ret.update(mod.get_dav_plugins(request))
 		return ret
+
+	def get_task_imports(self):
+		"""
+		Get a list of all modules containing Celery tasks.
+		"""
+		ret = []
+		for moddef, mod in self.loaded.items():
+			ret.extend(mod.get_task_imports())
+		return ret
+
+	def menu_generator(self, request):
+		"""
+		Generate all registered UI menu objects.
+		"""
+		for moddef, mod in self.loaded.items():
+			for menu in mod.get_menus(request):
+				menu.__moddef__ = moddef
+				yield menu
 
 def includeme(config):
 	"""

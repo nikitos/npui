@@ -2,7 +2,7 @@
 # -*- coding: utf-8; tab-width: 4; indent-tabs-mode: t -*-
 #
 # NetProfile: Documents module - Models
-# © Copyright 2013-2014 Alex 'Unik' Unigovsky
+# © Copyright 2013-2015 Alex 'Unik' Unigovsky
 #
 # This file is part of NetProfile.
 # NetProfile is free software: you can redistribute it and/or
@@ -100,12 +100,12 @@ class Document(Base):
 				'cap_delete'    : 'DOCUMENTS_DELETE',
 				'menu_name'     : _('Documents'),
 				'show_in_menu'  : 'admin',
-				'menu_order'    : 10,
 				'default_sort'  : ({ 'property': 'name', 'direction': 'ASC' },),
-				'grid_view'     : ('code', 'name', 'type'),
+				'grid_view'     : ('docid', 'code', 'name', 'type'),
+				'grid_hidden'   : ('docid',),
 				'form_view'     : ('code', 'name', 'type', 'external', 'body', 'descr'),
 				'easy_search'   : ('code', 'name'),
-				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
+				'detail_pane'   : ('netprofile_core.views', 'dpane_wide_content'),
 				'create_wizard' : SimpleWizard(title=_('Add new document'))
 			}
 		}
@@ -166,30 +166,12 @@ class Document(Base):
 		server_default=text('NULL'),
 		info={
 			'header_string' : _('Body'),
-#			'editor_xtype'  : 'htmleditor',
 			'editor_xtype'  : 'tinymce_field',
 			'editor_config' : {
 				'tinyMCEConfig' : {
-					'theme'                             : 'advanced',
-					'skin'                              : 'extjs',
-					'inlinepopups_skin'                 : 'extjs',
-					'theme_advanced_row_height'         : 27,
-					'delta_height'                      : 1,
-					'schema'                            : 'html5',
-					'plugins'                           : 'lists,pagebreak,style,layer,table,save,advhr,advimage,advlink,iespell,inlinepopups,insertdatetime,preview,media,searchreplace,print,contextmenu,paste,directionality,fullscreen,noneditable,visualchars,visualblocks,nonbreaking,xhtmlxtras,template,wordcount,advlist',
-
-					'theme_advanced_buttons1'           : 'bold,italic,underline,strikethrough,|,justifyleft,justifycenter,justifyright,justifyfull,styleselect,formatselect,fontselect,fontsizeselect',
-					'theme_advanced_buttons2'           : 'cut,copy,paste,pastetext,pasteword,|,search,replace,|,bullist,numlist,|,outdent,indent,blockquote,|,undo,redo,|,link,unlink,anchor,image,cleanup,help,code,|,insertdate,inserttime,preview,|,forecolor,backcolor',
-					'theme_advanced_buttons3'           : 'tablecontrols,|,hr,removeformat,visualaid,|,sub,sup,|,charmap,emotions,iespell,media,advhr,|,print,|,ltr,rtl,|,fullscreen',
-					'theme_advanced_buttons4'           : 'insertlayer,moveforward,movebackward,absolute,|,styleprops,|,cite,abbr,acronym,del,ins,attribs,|,visualchars,visualblocks,nonbreaking,template,pagebreak,restoredraft',
-
-					'theme_advanced_toolbar_location'   : 'top',
-					'theme_advanced_toolbar_align'      : 'left',
-					'theme_advanced_statusbar_location' : 'bottom',
-
-					'extended_valid_elements'           : '+tpl[if|elsif|else|for|foreach|switch|case|default]',
-					'custom_elements'                   : '~tpl',
-					'valid_children'                    : '+*[tpl],+tpl[*],+tbody[tpl],+body[tpl],+table[tpl],+tpl[table|tr|tpl|#text]'
+					'extended_valid_elements' : '+tpl[if|elsif|else|for|foreach|switch|case|default]',
+					'custom_elements'         : '~tpl',
+					'valid_children'          : '+*[tpl],+tpl[*],+tbody[tpl],+body[tpl],+table[tpl],+tpl[table|tr|tpl|#text]'
 				}
 			}
 		}
@@ -255,9 +237,9 @@ class DocumentBundle(Base):
 				'cap_delete'    : 'DOCUMENTS_BUNDLES_DELETE',
 				'menu_name'     : _('Bundles'),
 				'show_in_menu'  : 'admin',
-				'menu_order'    : 20,
 				'default_sort'  : ({ 'property': 'name', 'direction': 'ASC' },),
-				'grid_view'     : ('name',),
+				'grid_view'     : ('dbid', 'name'),
+				'grid_hidden'   : ('dbid',),
 				'form_view'     : ('name',),
 				'easy_search'   : ('name',),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
@@ -322,7 +304,8 @@ class DocumentBundleMapping(Base):
 				'cap_delete'    : 'DOCUMENTS_BUNDLES_EDIT',
 				'menu_name'     : _('Bundle Contents'),
 				'default_sort'  : ({ 'property': 'order', 'direction': 'ASC' },),
-				'grid_view'     : ('bundle', 'document', 'order', 'copies'),
+				'grid_view'     : ('dbbid', 'bundle', 'document', 'order', 'copies'),
+				'grid_hidden'   : ('dbbid',),
 				'form_view'     : ('bundle', 'document', 'order', 'copies'),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
 				'create_wizard' : SimpleWizard(title=_('Add new document to the bundle'))

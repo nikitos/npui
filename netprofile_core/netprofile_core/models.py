@@ -2,7 +2,7 @@
 # -*- coding: utf-8; tab-width: 4; indent-tabs-mode: t -*-
 #
 # NetProfile: Core module - Modules
-# © Copyright 2013-2014 Alex 'Unik' Unigovsky
+# © Copyright 2013-2015 Alex 'Unik' Unigovsky
 #
 # This file is part of NetProfile.
 # NetProfile is free software: you can redistribute it and/or
@@ -116,11 +116,6 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.mutable import Mutable
 from sqlalchemy.orm.collections import attribute_mapped_collection
 from sqlalchemy.orm.exc import NoResultFound
-
-#from colanderalchemy import (
-#	Column,
-#	relationship
-#)
 
 from netprofile import (
 	PY3,
@@ -272,9 +267,9 @@ class NPModule(Base):
 
 				'show_in_menu' : 'admin',
 				'menu_name'    : _('Modules'),
-				'menu_order'   : 40,
 				'default_sort' : ({ 'property': 'name' ,'direction': 'ASC' },),
-				'grid_view'    : ('name', 'curversion', 'enabled'),
+				'grid_view'    : ('npmodid', 'name', 'curversion', 'enabled'),
+				'grid_hidden'  : ('npmodid',),
 				'easy_search'  : ('name',)
 			}
 		}
@@ -296,7 +291,8 @@ class NPModule(Base):
 		nullable=False,
 		default=None,
 		info={
-			'header_string' : _('Name')
+			'header_string' : _('Name'),
+			'column_flex'   : 1
 		}
 	)
 	current_version = Column(
@@ -307,7 +303,8 @@ class NPModule(Base):
 		default='0.0.1',
 		server_default='0.0.1',
 		info={
-			'header_string' : _('Version')
+			'header_string' : _('Version'),
+			'column_flex'   : 1
 		}
 	)
 	enabled = Column(
@@ -387,6 +384,48 @@ class UserState(DeclEnum):
 	active  = 'A', _('Active'),  20
 	deleted = 'D', _('Deleted'), 30
 
+def _validate_user_password(model, colname, values, req):
+	if colname not in values:
+		return
+	try:
+		uid = int(values['uid'])
+	except (KeyError, TypeError, ValueError):
+		return
+	sess = DBSession()
+	user = sess.query(User).get(uid)
+	if user is None:
+		return
+	newpwd = values[colname]
+	if newpwd is None:
+		return
+	secpol = user.effective_policy
+	if secpol is None:
+		return
+	ts = dt.datetime.now()
+	checkpw = secpol.check_new_password(req, user, newpwd, ts)
+	if checkpw is True:
+		return
+	loc = get_localizer(req)
+	return secpol_errors(checkpw, loc)
+
+def secpol_errors(checkpw, loc):
+	errors = []
+	if 'pw_length_min' in checkpw:
+		errors.append(loc.translate(_('Password is too short.')))
+	if 'pw_length_max' in checkpw:
+		errors.append(loc.translate(_('Password is too long.')))
+	if 'pw_ctype_min' in checkpw:
+		errors.append(loc.translate(_('Password has not enough character types.')))
+	if 'pw_ctype_max' in checkpw:
+		errors.append(loc.translate(_('Password has too many character types.')))
+	if 'pw_dict_check' in checkpw:
+		errors.append(loc.translate(_('Password was found in a dictionary.')))
+	if 'pw_hist_check' in checkpw:
+		errors.append(loc.translate(_('You used this password not too long ago.')))
+	if 'pw_age_min' in checkpw:
+		errors.append(loc.translate(_('You\'ve just changed your password.')))
+	return errors
+
 @implementer(IDAVFile, IDAVPrincipal)
 class User(Base):
 	"""
@@ -417,9 +456,9 @@ class User(Base):
 
 				'show_in_menu' : 'admin',
 				'menu_name'    : _('Users'),
-				'menu_order'   : 20,
 				'default_sort' : ({ 'property': 'login' ,'direction': 'ASC' },),
-				'grid_view'    : ('login', 'name_family', 'name_given', 'group', 'enabled', 'state', 'email'),
+				'grid_view'    : ('uid', 'login', 'name_family', 'name_given', 'name_middle', 'manager', 'group', 'enabled', 'state', 'security_policy', 'email'),
+				'grid_hidden'  : ('uid', 'name_middle', 'manager', 'security_policy'),
 				'form_view'    : (
 					'login', 'name_family', 'name_given', 'name_middle',
 					'title', 'group', 'secondary_groups', 'enabled',
@@ -460,7 +499,8 @@ class User(Base):
 		info={
 			'header_string' : _('Group'),
 			'filter_type'   : 'list',
-			'ldap_attr'     : 'gidNumber'
+			'ldap_attr'     : 'gidNumber',
+			'column_flex'   : 2
 		}
 	)
 	security_policy_id = Column(
@@ -472,7 +512,8 @@ class User(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Security Policy')
+			'header_string' : _('Security Policy'),
+			'column_flex'   : 2
 		}
 	)
 	state = Column(
@@ -495,7 +536,8 @@ class User(Base):
 			'header_string' : _('Username'),
 			'writer'        : 'change_login',
 			'pass_request'  : True,
-			'ldap_attr'     : ('uid', 'xmozillanickname', 'gecos', 'displayName')
+			'ldap_attr'     : ('uid', 'xmozillanickname', 'gecos', 'displayName'),
+			'column_flex'   : 2
 		}
 	)
 	password = Column(
@@ -508,6 +550,7 @@ class User(Base):
 			'secret_value'  : True,
 			'editor_xtype'  : 'passwordfield',
 			'writer'        : 'change_password',
+			'validator'     : _validate_user_password,
 			'pass_request'  : True,
 			'ldap_attr'     : 'userPassword', # FIXME!
 			'ldap_value'    : 'ldap_password'
@@ -545,7 +588,8 @@ class User(Base):
 		server_default=text('NULL'),
 		info={
 			'header_string' : _('Family Name'),
-			'ldap_attr'     : ('sn', 'cn') # FIXME: move 'cn' to dynamic attr
+			'ldap_attr'     : ('sn', 'cn'), # FIXME: move 'cn' to dynamic attr
+			'column_flex'   : 3
 		}
 	)
 	name_given = Column(
@@ -556,7 +600,8 @@ class User(Base):
 		server_default=text('NULL'),
 		info={
 			'header_string' : _('Given Name'),
-			'ldap_attr'     : 'givenName'
+			'ldap_attr'     : 'givenName',
+			'column_flex'   : 3
 		}
 	)
 	name_middle = Column(
@@ -567,7 +612,8 @@ class User(Base):
 		server_default=text('NULL'),
 		info={
 			'header_string' : _('Middle Name'),
-			'ldap_attr'     : 'initials' # FIXME?
+			'ldap_attr'     : 'initials', # FIXME?
+			'column_flex'   : 3
 		}
 	)
 	title = Column(
@@ -590,7 +636,8 @@ class User(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Manager')
+			'header_string' : _('Manager'),
+			'column_flex'   : 2
 		}
 	)
 	email = Column(
@@ -602,7 +649,8 @@ class User(Base):
 		info={
 			'header_string' : _('E-mail'),
 			'vtype'         : 'email',
-			'ldap_attr'     : 'mail'
+			'ldap_attr'     : 'mail',
+			'column_flex'   : 2
 		}
 	)
 	ip_address = Column(
@@ -707,7 +755,8 @@ class User(Base):
 	)
 	sessions = relationship(
 		'NPSession',
-		backref='user'
+		backref='user',
+		passive_deletes=True
 	)
 	calendars = relationship(
 		'Calendar',
@@ -778,24 +827,24 @@ class User(Base):
 
 	def ldap_status(self, settings):
 		if self.state == UserState.pending:
-			return b'noaccess'
+			return 'noaccess'
 		elif self.state == UserState.active:
 			if self.enabled:
-				return b'active'
+				return 'active'
 			else:
-				return b'disabled'
+				return 'disabled'
 		else:
-			return b'deleted'
+			return 'deleted'
 
 	def ldap_password(self, settings):
 		pw = getattr(self, 'mod_pw', False)
 		if not pw:
-			raise ValueError
+			raise ValueError('Temporary plaintext password was not found')
 		salt = self.generate_salt(4).encode()
 		ctx = hashlib.sha1()
 		ctx.update(pw.encode())
 		ctx.update(salt)
-		return b'{SSHA}' + base64.b64encode(ctx.digest() + salt)
+		return '{SSHA}' + base64.b64encode(ctx.digest() + salt).decode()
 
 	def generate_a1hash(self, realm):
 		ctx = hashlib.md5()
@@ -827,7 +876,7 @@ class User(Base):
 			checkpw = secpol.check_new_password(request, self, newpwd, ts)
 			if checkpw is not True:
 				# FIXME: error reporting
-				return
+				raise ValueError(checkpw)
 		reg = request.registry
 		hash_con = reg.settings.get('netprofile.auth.hash', 'sha1')
 		salt_len = int(reg.settings.get('netprofile.auth.salt_length', 4))
@@ -842,6 +891,28 @@ class User(Base):
 			self.a1_hash = self.generate_a1hash(realm)
 		if secpol:
 			secpol.after_new_password(request, self, newpwd, ts)
+		if request.user == self:
+			request.session['sess.nextcheck'] = ts
+			request.session['sess.pwage'] = 'ok'
+			if 'sess.pwdays' in request.session:
+				del request.session['sess.pwdays']
+
+	@property
+	def last_password_change(self):
+		return DBSession().query(PasswordHistory)\
+			.filter(PasswordHistory.user == self)\
+			.order_by(PasswordHistory.timestamp.desc())\
+			.first()
+
+	@property
+	def sess_timeout(self):
+		secpol = self.effective_policy
+		if not secpol:
+			return None
+		sto = secpol.sess_timeout
+		if (not sto) or (sto < 30):
+			return None
+		return sto
 
 	@property
 	def flat_privileges(self):
@@ -887,8 +958,17 @@ class User(Base):
 				ret[ust.name] = ust.parse_param(ust.default)
 		return ret
 
-	def generate_session(self, req, sname):
-		now = dt.datetime.now()
+	def client_acls(self, req):
+		ret = {}
+		for priv, res in self.acls:
+			if priv not in ret:
+				ret[priv] = {}
+			ret[priv][res] = self.acls[(priv, res)]
+		return ret
+
+	def generate_session(self, req, sname, now=None):
+		if now is None:
+			now = dt.datetime.now()
 		npsess = NPSession(
 			user=self,
 			login=self.login,
@@ -905,6 +985,9 @@ class User(Base):
 					npsess.ipv6_address = ip
 			except ValueError:
 				pass
+		secpol = self.effective_policy
+		if secpol and (not secpol.check_new_session(req, self, npsess, now)):
+			return None
 		return npsess
 
 	def group_vector(self):
@@ -1022,12 +1105,12 @@ class User(Base):
 			groupset.add(g)
 		dnlist = []
 		for g in groupset:
-			dnlist.append(get_dn(g, settings).encode())
+			dnlist.append(get_dn(g, settings))
 		ret = {}
 		if self.login:
-			ret['homeDirectory'] = ('/home/%s' % self.login).encode()
+			ret['homeDirectory'] = '/home/%s' % (self.login,)
 		if 'netprofile.ldap.orm.User.default_shell' in settings:
-			ret['loginShell'] = settings['netprofile.ldap.orm.User.default_shell'].encode()
+			ret['loginShell'] = settings['netprofile.ldap.orm.User.default_shell']
 		if len(dnlist) > 0:
 			ret['memberOf'] = dnlist
 		return ret
@@ -1167,9 +1250,9 @@ class Group(Base):
 
 				'show_in_menu' : 'admin',
 				'menu_name'    : _('Groups'),
-				'menu_order'   : 30,
 				'default_sort' : ({ 'property': 'name' ,'direction': 'ASC' },),
-				'grid_view'    : ('name', 'parent', 'security_policy', 'root_folder'),
+				'grid_view'    : ('gid', 'name', 'parent', 'security_policy', 'root_folder'),
+				'grid_hidden'  : ('gid',),
 				'form_view'    : ('name', 'parent', 'security_policy', 'visible', 'assignable', 'root_folder'),
 				'easy_search'  : ('name',),
 				'detail_pane'  : ('netprofile_core.views', 'dpane_simple'),
@@ -1208,7 +1291,8 @@ class Group(Base):
 		server_default=text('NULL'),
 		info={
 			'header_string' : _('Parent'),
-			'filter_type'   : 'list'
+			'filter_type'   : 'list',
+			'column_flex'   : 3
 		}
 	)
 	security_policy_id = Column(
@@ -1221,7 +1305,8 @@ class Group(Base):
 		server_default=text('NULL'),
 		info={
 			'header_string' : _('Security Policy'),
-			'filter_type'   : 'list'
+			'filter_type'   : 'list',
+			'column_flex'   : 2
 		}
 	)
 	name = Column(
@@ -1230,7 +1315,8 @@ class Group(Base):
 		nullable=False,
 		info={
 			'header_string' : _('Name'),
-			'ldap_attr'     : 'cn'
+			'ldap_attr'     : 'cn',
+			'column_flex'   : 3
 		}
 	)
 	visible = Column(
@@ -1263,7 +1349,8 @@ class Group(Base):
 		server_default=text('NULL'),
 		info={
 			'header_string' : _('Root Folder'),
-			'filter_type'   : 'none'
+			'filter_type'   : 'none',
+			'column_flex'   : 2
 		}
 	)
 	secondary_usermap = relationship(
@@ -1373,14 +1460,10 @@ class Group(Base):
 			userset.add(u)
 		dnlist = []
 		for u in userset:
-			dnlist.append(get_dn(u, settings).encode())
+			dnlist.append(get_dn(u, settings))
 		ret = {}
 		if len(dnlist) > 0:
 			ret['uniqueMember'] = dnlist
-#		if self.login:
-#			ret['homeDirectory'] = ('/home/%s' % self.login).encode()
-#		if 'netprofile.ldap.orm.User.default_shell' in settings:
-#			ret['loginShell'] = settings['netprofile.ldap.orm.User.default_shell'].encode()
 		return ret
 
 	def get_uri(self):
@@ -1461,9 +1544,9 @@ class Privilege(Base):
 
 				'show_in_menu' : 'admin',
 				'menu_name'    : _('Privileges'),
-				'menu_order'   : 40,
 				'default_sort' : ({ 'property': 'code' ,'direction': 'ASC' },),
-				'grid_view'    : ('module', 'code', 'name', 'guestvalue', 'hasacls'),
+				'grid_view'    : ('privid', 'module', 'code', 'name', 'guestvalue', 'hasacls', 'canbeset'),
+				'grid_hidden'  : ('privid', 'canbeset'),
 				'form_view'    : ('module', 'code', 'name', 'guestvalue', 'hasacls', 'resclass'),
 				'easy_search'  : ('code', 'name'),
 				'detail_pane'  : ('netprofile_core.views', 'dpane_simple'),
@@ -1494,7 +1577,8 @@ class Privilege(Base):
 		server_default=text('1'),
 		info={
 			'header_string' : _('Module'),
-			'filter_type'   : 'list'
+			'filter_type'   : 'list',
+			'column_flex'   : 2
 		}
 	)
 	can_be_set = Column(
@@ -1513,7 +1597,8 @@ class Privilege(Base):
 		Comment('Privilege code'),
 		nullable=False,
 		info={
-			'header_string' : _('Code')
+			'header_string' : _('Code'),
+			'column_flex'   : 2
 		}
 	)
 	name = Column(
@@ -1521,7 +1606,8 @@ class Privilege(Base):
 		Comment('Privilege name'),
 		nullable=False,
 		info={
-			'header_string' : _('Name')
+			'header_string' : _('Name'),
+			'column_flex'   : 3
 		}
 	)
 	guest_value = Column(
@@ -1673,7 +1759,6 @@ class GroupCapability(Capability,Base):
 
 #				'show_in_menu' : 'admin',
 				'menu_name'    : _('Group Capabilities'),
-#				'menu_order'   : 40,
 				'default_sort' : (),
 #				'grid_view'    : ('code', 'name', 'guestvalue', 'hasacls')
 			}
@@ -1710,7 +1795,6 @@ class UserCapability(Capability,Base):
 
 #				'show_in_menu' : 'admin',
 				'menu_name'    : _('User Capabilities'),
-#				'menu_order'   : 40,
 				'default_sort' : (),
 #				'grid_view'    : ('code', 'name', 'guestvalue', 'hasacls')
 			}
@@ -1931,9 +2015,9 @@ class SecurityPolicy(Base):
 
 				'show_in_menu' : 'admin',
 				'menu_name'    : _('Security Policies'),
-				'menu_order'   : 50,
 				'default_sort' : ({ 'property': 'name' ,'direction': 'ASC' },),
-				'grid_view'    : ('name', 'pw_length_min', 'pw_length_max', 'pw_ctype_min', 'pw_ctype_max', 'pw_dict_check', 'pw_hist_check', 'pw_hist_size'),
+				'grid_view'    : ('secpolid', 'name', 'pw_length_min', 'pw_length_max', 'pw_ctype_min', 'pw_ctype_max', 'pw_dict_check', 'pw_hist_check', 'pw_hist_size', 'sess_timeout'),
+				'grid_hidden'  : ('secpolid', 'sess_timeout'),
 				'form_view'    : (
 					'name', 'descr',
 					'pw_length_min', 'pw_length_max',
@@ -1941,7 +2025,8 @@ class SecurityPolicy(Base):
 					'pw_dict_check', 'pw_dict_name',
 					'pw_hist_check', 'pw_hist_size',
 					'pw_age_min', 'pw_age_max', 'pw_age_warndays', 'pw_age_warnmail', 'pw_age_action',
-					'net_whitelist', 'sess_timeout'
+					'net_whitelist', 'sess_timeout',
+					'sess_window_ipv4', 'sess_window_ipv6'
 				),
 				'easy_search'  : ('name',),
 				'detail_pane'  : ('netprofile_core.views', 'dpane_simple')
@@ -1964,7 +2049,8 @@ class SecurityPolicy(Base):
 		Comment('Security policy name'),
 		nullable=False,
 		info={
-			'header_string' : _('Name')
+			'header_string' : _('Name'),
+			'column_flex'   : 1
 		}
 	)
 	pw_length_min = Column(
@@ -2117,6 +2203,26 @@ class SecurityPolicy(Base):
 			'header_string' : _('Session Timeout')
 		}
 	)
+	sess_window_ipv4 = Column(
+		UInt8(),
+		Comment('Allow IPv4 source addresses to migrate within this mask'),
+		nullable=True,
+		default=32,
+		server_default=text('32'),
+		info={
+			'header_string' : _('IPv4 Session Window')
+		}
+	)
+	sess_window_ipv6 = Column(
+		UInt8(),
+		Comment('Allow IPv6 source addresses to migrate within this mask'),
+		nullable=True,
+		default=128,
+		server_default=text('128'),
+		info={
+			'header_string' : _('IPv6 Session Window')
+		}
+	)
 	description = Column(
 		'descr',
 		UnicodeText(),
@@ -2136,6 +2242,18 @@ class SecurityPolicy(Base):
 		'Group',
 		backref='security_policy'
 	)
+
+	@property
+	def net_whitelist_acl(self):
+		if not self.net_whitelist:
+			return None
+		nets = []
+		for ace in self.net_whitelist.split(';'):
+			try:
+				nets.append(ipaddr.IPNetwork(ace.strip()))
+			except ValueError:
+				pass
+		return nets
 
 	def check_new_password(self, req, user, pwd, ts):
 		err = []
@@ -2230,14 +2348,103 @@ class SecurityPolicy(Base):
 				timestamp=ts
 			))
 
-	def check_new_session(self, req, user, npsess, ts):
-		pass
+	def check_new_session(self, req, user, npsess, ts=None):
+		if ts is None:
+			ts = dt.datetime.now()
+		addr = npsess.ip_address or npsess.ipv6_address
+		acl = self.net_whitelist_acl
+		if addr and acl:
+			for net in acl:
+				if addr in net:
+					break
+			else:
+				return False
+		# Expensive checks
+		if not self.check_password_age(req, user, npsess, ts):
+			return False
+		req.session['sess.nextcheck'] = _sess_nextcheck(req, ts)
+		return True
 
-	def check_old_session(self, req, user, npsess, ts):
-		pass
+	def check_old_session(self, req, user, npsess, ts=None):
+		if ts is None:
+			ts = dt.datetime.now()
+		if self.sess_timeout and npsess.last_time and (self.sess_timeout >= 30):
+			delta = ts - npsess.last_time
+			if delta.total_seconds() > self.sess_timeout:
+				return False
+		addr = npsess.ip_address or npsess.ipv6_address
+		if req.remote_addr is not None:
+			try:
+				remote_addr = ipaddr.IPAddress(req.remote_addr)
+			except ValueError:
+				return False
+			if isinstance(remote_addr, ipaddr.IPv4Address) and self.sess_window_ipv4:
+				if not isinstance(addr, ipaddr.IPv4Address):
+					return False
+				try:
+					window = ipaddr.IPv4Network('%s/%d' % (str(addr), self.sess_window_ipv4))
+				except ValueError:
+					return False
+				if remote_addr not in window:
+					return False
+			elif isinstance(remote_addr, ipaddr.IPv6Address) and self.sess_window_ipv6:
+				if not isinstance(addr, ipaddr.IPv6Address):
+					return False
+				try:
+					window = ipaddr.IPv6Network('%s/%d' % (str(addr), self.sess_window_ipv6))
+				except ValueError:
+					return False
+				if remote_addr not in window:
+					return False
+		acl = self.net_whitelist_acl
+		if addr and acl:
+			for net in acl:
+				if addr in net:
+					break
+			else:
+				return False
+		if 'sess.nextcheck' in req.session:
+			nextcheck = req.session['sess.nextcheck']
+		else:
+			nextcheck = req.session['sess.nextcheck'] = _sess_nextcheck(req, ts)
+		if nextcheck < ts:
+			# Expensive checks
+			if not self.check_password_age(req, user, npsess, ts):
+				return False
+			req.session['sess.nextcheck'] = _sess_nextcheck(req, ts)
+		return True
+
+	def check_password_age(self, req, user, npsess, ts):
+		last_pwh = user.last_password_change
+		if last_pwh:
+			days = (ts - last_pwh.timestamp).days
+			if days > self.pw_age_max:
+				if self.pw_age_action == SecurityPolicyOnExpire.drop:
+					return False
+				req.session['sess.pwage'] = 'force'
+			elif self.pw_age_warndays:
+				days_left = self.pw_age_max - days
+				if days_left < self.pw_age_warndays:
+					req.session['sess.pwage'] = 'warn'
+					req.session['sess.pwdays'] = days_left
+				else:
+					req.session['sess.pwage'] = 'ok'
+			else:
+				req.session['sess.pwage'] = 'ok'
+		else:
+			req.session['sess.pwage'] = 'ok'
+		return True
 
 	def __str__(self):
 		return '%s' % str(self.name)
+
+def _sess_nextcheck(req, ts):
+	cfg = req.registry.settings
+	try:
+		secs = int(cfg.get('netprofile.auth.session_check_period', 1800))
+	except (TypeError, ValueError):
+		secs = 1800
+	return ts + dt.timedelta(seconds=secs)
 
 class DAVLock(Base):
 	"""
@@ -2484,7 +2691,8 @@ class FileFolder(Base):
 
 				'menu_name'    : _('Folders'),
 				'default_sort' : ({ 'property': 'name' ,'direction': 'ASC' },),
-				'grid_view'    : ('name', 'ctime', 'mtime'),
+				'grid_view'    : ('ffid', 'name', 'parent', 'ctime', 'mtime'),
+				'grid_hidden'  : ('ffid', 'parent'),
 				'form_view'    : ('name', 'user', 'group', 'rights', 'ctime', 'mtime', 'descr'),
 				'easy_search'  : ('name',),
 				'detail_pane'  : ('netprofile_core.views', 'dpane_simple'),
@@ -2524,7 +2732,8 @@ class FileFolder(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('User')
+			'header_string' : _('User'),
+			'editor_config' : { 'allowBlank' : False }
 		}
 	)
 	group_id = Column(
@@ -2536,7 +2745,8 @@ class FileFolder(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Group')
+			'header_string' : _('Group'),
+			'editor_config' : { 'allowBlank' : False }
 		}
 	)
 	rights = Column(
@@ -2631,21 +2841,26 @@ class FileFolder(Base):
 	@classmethod
 	def __augment_create__(cls, sess, obj, values, req):
 		u = req.user
+		root_ff = u.group.effective_root_folder
 		if 'parentid' in values:
-			if (values['parentid'] is None) and (not u.root_writable):
-				return False
-			try:
-				pid = int(values['parentid'])
-			except ValueError:
-				return False
-			parent = sess.query(FileFolder).get(pid)
-			if parent is None:
-				return False
-			if (not parent.can_write(u)) or (not parent.can_traverse_path(u)):
-				return False
-			root_ff = u.group.effective_root_folder
-			if root_ff and (not parent.is_inside(root_ff)):
-				return False
+			pid = values['parentid']
+			if pid is None:
+				if not u.root_writable:
+					return False
+			else:
+				try:
+					pid = int(pid)
+				except (TypeError, ValueError):
+					return False
+				parent = sess.query(FileFolder).get(pid)
+				if parent is None:
+					return False
+				if (not parent.can_write(u)) or (not parent.can_traverse_path(u)):
+					return False
+				if root_ff and (not parent.is_inside(root_ff)):
+					return False
+		elif root_ff or not u.root_writable:
+			return False
 		return True
 
 	@classmethod
@@ -2663,19 +2878,22 @@ class FileFolder(Base):
 		if (not root_ff) and (not u.root_writable):
 			return False
 		if 'parentid' in values:
-			if (values['parentid'] is None) and (not u.root_writable):
-				return False
-			try:
-				pid = int(values['parentid'])
-			except ValueError:
-				return False
-			new_parent = sess.query(FileFolder).get(pid)
-			if new_parent is None:
-				return False
-			if (not new_parent.can_write(u)) or (not new_parent.can_traverse_path(u)):
-				return False
-			if root_ff and (not new_parent.is_inside(root_ff)):
-				return False
+			pid = values['parentid']
+			if pid is None:
+				if not u.root_writable:
+					return False
+			else:
+				try:
+					pid = int(pid)
+				except (TypeError, ValueError):
+					return False
+				new_parent = sess.query(FileFolder).get(pid)
+				if new_parent is None:
+					return False
+				if (not new_parent.can_write(u)) or (not new_parent.can_traverse_path(u)):
+					return False
+				if root_ff and (not new_parent.is_inside(root_ff)):
+					return False
 		return True
 
 	@classmethod
@@ -3057,6 +3275,7 @@ class FileResponse(Response):
 		self.vary = ('Cookie',)
 		# TODO: self.cache_control
 		self.accept_ranges = 'bytes'
+		self.headerlist.append(('X-Frame-Options', 'SAMEORIGIN'))
 		if PY3:
 			self.content_disposition = \
 				'attachment; filename*=UTF-8\'\'%s' % (
@@ -3148,7 +3367,8 @@ class File(Base):
 
 				'menu_name'    : _('Files'),
 				'default_sort' : ({ 'property': 'fname' ,'direction': 'ASC' },),
-				'grid_view'    : ('folder', 'fname', 'size', 'ctime', 'mtime'),
+				'grid_view'    : ('fileid', 'folder', 'fname', 'size', 'ctime', 'mtime'),
+				'grid_hidden'  : ('fileid',),
 				'form_view'    : ('fname', 'folder', 'size', 'user', 'group', 'rights', 'ctime', 'mtime', 'name', 'descr'),
 				'easy_search'  : ('fname', 'name'),
 				'detail_pane'  : ('netprofile_core.views', 'dpane_simple'),
@@ -3206,7 +3426,8 @@ class File(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('User')
+			'header_string' : _('User'),
+			'editor_config' : { 'allowBlank' : False }
 		}
 	)
 	group_id = Column(
@@ -3218,7 +3439,8 @@ class File(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Group')
+			'header_string' : _('Group'),
+			'editor_config' : { 'allowBlank' : False }
 		}
 	)
 	rights = Column(
@@ -3346,21 +3568,26 @@ class File(Base):
 	@classmethod
 	def __augment_create__(cls, sess, obj, values, req):
 		u = req.user
+		root_ff = u.group.effective_root_folder
 		if 'ffid' in values:
-			if (values['ffid'] is None) and (not u.root_writable):
-				return False
-			try:
-				ffid = int(values['ffid'])
-			except ValueError:
-				return False
-			parent = sess.query(FileFolder).get(ffid)
-			if parent is None:
-				return False
-			if (not parent.can_write(u)) or (not parent.can_traverse_path(u)):
-				return False
-			root_ff = u.group.effective_root_folder
-			if root_ff and (not parent.is_inside(root_ff)):
-				return False
+			ffid = values['ffid']
+			if ffid is None:
+				if not u.root_writable:
+					return False
+			else:
+				try:
+					ffid = int(ffid)
+				except (TypeError, ValueError):
+					return False
+				parent = sess.query(FileFolder).get(ffid)
+				if parent is None:
+					return False
+				if (not parent.can_write(u)) or (not parent.can_traverse_path(u)):
+					return False
+				if root_ff and (not parent.is_inside(root_ff)):
+					return False
+		elif root_ff or not u.root_writable:
+			return False
 		return True
 
 	@classmethod
@@ -3378,19 +3605,22 @@ class File(Base):
 		if (not root_ff) and (not u.root_writable):
 			return False
 		if 'ffid' in values:
-			if (values['ffid'] is None) and (not u.root_writable):
-				return False
-			try:
-				ffid = int(values['ffid'])
-			except ValueError:
-				return False
-			new_parent = sess.query(FileFolder).get(ffid)
-			if new_parent is None:
-				return False
-			if (not new_parent.can_write(u)) or (not new_parent.can_traverse_path(u)):
-				return False
-			if root_ff and (not new_parent.is_inside(root_ff)):
-				return False
+			ffid = values['ffid']
+			if ffid is None:
+				if not u.root_writable:
+					return False
+			else:
+				try:
+					ffid = int(ffid)
+				except (TypeError, ValueError):
+					return False
+				new_parent = sess.query(FileFolder).get(ffid)
+				if new_parent is None:
+					return False
+				if (not new_parent.can_write(u)) or (not new_parent.can_traverse_path(u)):
+					return False
+				if root_ff and (not new_parent.is_inside(root_ff)):
+					return False
 		return True
 
 	@classmethod
@@ -4227,9 +4457,9 @@ class Tag(Base):
 
 				'show_in_menu'  : 'admin',
 				'menu_name'     : _('Tags'),
-				'menu_order'    : 60,
 				'default_sort'  : ({ 'property': 'name' ,'direction': 'ASC' },),
-				'grid_view'     : ('name', 'descr'),
+				'grid_view'     : ('tagid', 'name', 'descr'),
+				'grid_hidden'   : ('tagid',),
 				'easy_search'   : ('name', 'descr'),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
 
@@ -4257,7 +4487,8 @@ class Tag(Base):
 		Comment('Tag name'),
 		nullable=False,
 		info={
-			'header_string' : _('Name')
+			'header_string' : _('Name'),
+			'column_flex'   : 2
 		}
 	)
 	description = Column(
@@ -4268,7 +4499,8 @@ class Tag(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Description')
+			'header_string' : _('Description'),
+			'column_flex'   : 3
 		}
 	)
 
@@ -4296,9 +4528,9 @@ class LogType(Base):
 				'show_in_menu'  : 'admin',
 				'menu_section'  : _('Logging'),
 				'menu_name'     : _('Log Types'),
-				'menu_order'    : 81,
 				'default_sort'  : ({ 'property': 'name' ,'direction': 'ASC' },),
-				'grid_view'     : ('name',),
+				'grid_view'     : ('ltid', 'name'),
+				'grid_hidden'   : ('ltid',),
 				'easy_search'   : ('name',),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple')
 			}
@@ -4320,7 +4552,8 @@ class LogType(Base):
 		Comment('Log entry type name'),
 		nullable=False,
 		info={
-			'header_string' : _('Name')
+			'header_string' : _('Name'),
+			'column_flex'   : 1
 		}
 	)
 
@@ -4348,9 +4581,9 @@ class LogAction(Base):
 				'show_in_menu' : 'admin',
 				'menu_section' : _('Logging'),
 				'menu_name'    : _('Log Actions'),
-				'menu_order'   : 82,
 				'default_sort' : ({ 'property': 'name' ,'direction': 'ASC' },),
-				'grid_view'    : ('name',),
+				'grid_view'    : ('laid', 'name'),
+				'grid_hidden'  : ('laid',),
 				'easy_search'  : ('name',),
 				'detail_pane'  : ('netprofile_core.views', 'dpane_simple')
 			}
@@ -4372,7 +4605,8 @@ class LogAction(Base):
 		Comment('Log action name'),
 		nullable=False,
 		info={
-			'header_string' : _('Name')
+			'header_string' : _('Name'),
+			'column_flex'   : 1
 		}
 	)
 
@@ -4399,9 +4633,9 @@ class LogData(Base):
 				'show_in_menu' : 'admin',
 				'menu_section' : _('Logging'),
 				'menu_name'    : _('Log Data'),
-				'menu_order'   : 80,
 				'default_sort' : ({ 'property': 'ts' ,'direction': 'DESC' },),
-				'grid_view'    : ('ts', 'login', 'xtype', 'xaction', 'data'),
+				'grid_view'    : ('logid', 'ts', 'login', 'xtype', 'xaction', 'data'),
+				'grid_hidden'  : ('logid',),
 				'easy_search'  : ('login', 'data'),
 				'detail_pane'  : ('netprofile_core.views', 'dpane_simple')
 			}
@@ -4466,7 +4700,8 @@ class LogData(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Data')
+			'header_string' : _('Data'),
+			'column_flex'   : 1
 		}
 	)
 
@@ -4511,9 +4746,9 @@ class NPSession(Base):
 
 				'show_in_menu' : 'admin',
 				'menu_name'    : _('UI Sessions'),
-				'menu_order'   : 90,
 				'default_sort' : ({ 'property': 'lastts' ,'direction': 'DESC' },),
-				'grid_view'    : ('sname', 'user', 'login', 'startts', 'lastts', 'ipaddr', 'ip6addr'),
+				'grid_view'    : ('npsid', 'sname', 'user', 'login', 'startts', 'lastts', 'ipaddr', 'ip6addr'),
+				'grid_hidden'  : ('npsid', 'sname'),
 				'easy_search'  : ('sname', 'login'),
 				'detail_pane'  : ('netprofile_core.views', 'dpane_simple')
 			}
@@ -4536,7 +4771,8 @@ class NPSession(Base):
 		Comment('NP session hash'),
 		nullable=False,
 		info={
-			'header_string' : _('Name')
+			'header_string' : _('Name'),
+			'column_flex'   : 3
 		}
 	)
 	user_id = Column(
@@ -4549,7 +4785,8 @@ class NPSession(Base):
 		server_default=text('NULL'),
 		info={
 			'header_string' : _('User'),
-			'filter_type'   : 'none'
+			'filter_type'   : 'none',
+			'column_flex'   : 1
 		}
 	)
 	login = Column(
@@ -4559,7 +4796,8 @@ class NPSession(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Username')
+			'header_string' : _('Username'),
+			'column_flex'   : 1
 		}
 	)
 	start_time = Column(
@@ -4603,9 +4841,27 @@ class NPSession(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('IPv6 Address')
+			'header_string' : _('IPv6 Address'),
+			'column_flex'   : 1
 		}
 	)
+
+	@property
+	def end_time(self):
+		lastts = self.last_time
+		if not lastts:
+			return None
+		user = self.user
+		if not user:
+			return None
+		secpol = user.effective_policy
+		if not secpol:
+			return None
+		sto = secpol.sess_timeout
+		if (not sto) or (sto < 30):
+			return None
+		et = lastts + dt.timedelta(seconds=sto)
+		return et.replace(microsecond=0)
 
 	@classmethod
 	def __augment_pg_query__(cls, sess, query, params, req):
@@ -4623,6 +4879,19 @@ class NPSession(Base):
 		if upt is None:
 			upt = dt.datetime.now()
 		self.last_time = upt
+
+	def check_request(self, req, ts=None):
+		user = req.user
+		if user != self.user:
+			return False
+		if not user.enabled:
+			return False
+		if user.state != UserState.active:
+			return False
+		secpol = user.effective_policy
+		if secpol and (not secpol.check_old_session(req, user, self, ts)):
+			return False
+		return True
 
 class PasswordHistory(Base):
 	"""
@@ -4703,9 +4972,9 @@ class GlobalSettingSection(Base):
 				'show_in_menu'  : 'admin',
 				'menu_section'  : _('Settings'),
 				'menu_name'     : _('Global Setting Sections'),
-				'menu_order'    : 70,
 				'default_sort'  : ({ 'property': 'name' ,'direction': 'ASC' },),
-				'grid_view'     : ('module', 'name', 'descr'),
+				'grid_view'     : ('npgssid', 'module', 'name', 'descr'),
+				'grid_hidden'   : ('npgssid',),
 				'easy_search'   : ('name', 'descr'),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
 
@@ -4732,7 +5001,8 @@ class GlobalSettingSection(Base):
 		nullable=False,
 		info={
 			'header_string' : _('Module'),
-			'filter_type'   : 'list'
+			'filter_type'   : 'list',
+			'column_flex'   : 1
 		}
 	)
 	name = Column(
@@ -4740,7 +5010,8 @@ class GlobalSettingSection(Base):
 		Comment('Global parameter section name'),
 		nullable=False,
 		info={
-			'header_string' : _('Name')
+			'header_string' : _('Name'),
+			'column_flex'   : 1
 		}
 	)
 	description = Column(
@@ -4751,7 +5022,8 @@ class GlobalSettingSection(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Description')
+			'header_string' : _('Description'),
+			'column_flex'   : 2
 		}
 	)
 
@@ -4786,9 +5058,9 @@ class UserSettingSection(Base):
 				'show_in_menu'  : 'admin',
 				'menu_section'  : _('Settings'),
 				'menu_name'     : _('User Setting Sections'),
-				'menu_order'    : 71,
 				'default_sort'  : ({ 'property': 'name' ,'direction': 'ASC' },),
-				'grid_view'     : ('module', 'name', 'descr'),
+				'grid_view'     : ('npussid', 'module', 'name', 'descr'),
+				'grid_hidden'   : ('npussid',),
 				'easy_search'   : ('name', 'descr'),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
 
@@ -4815,7 +5087,8 @@ class UserSettingSection(Base):
 		nullable=False,
 		info={
 			'header_string' : _('Module'),
-			'filter_type'   : 'list'
+			'filter_type'   : 'list',
+			'column_flex'   : 1
 		}
 	)
 	name = Column(
@@ -4823,7 +5096,8 @@ class UserSettingSection(Base):
 		Comment('User parameter section name'),
 		nullable=False,
 		info={
-			'header_string' : _('Name')
+			'header_string' : _('Name'),
+			'column_flex'   : 1
 		}
 	)
 	description = Column(
@@ -4834,7 +5108,8 @@ class UserSettingSection(Base):
 		default=None,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Description')
+			'header_string' : _('Description'),
+			'column_flex'   : 2
 		}
 	)
 
@@ -4987,9 +5262,9 @@ class GlobalSetting(Base, DynamicSetting):
 				'show_in_menu' : 'admin',
 				'menu_section' : _('Settings'),
 				'menu_name'    : _('Global Settings'),
-				'menu_order'   : 72,
 				'default_sort' : ({ 'property': 'name' ,'direction': 'ASC' },),
-				'grid_view'    : ('module', 'section', 'name', 'title', 'type', 'value', 'default'),
+				'grid_view'    : ('npglobid', 'module', 'section', 'name', 'title', 'type', 'value', 'default'),
+				'grid_hidden'  : ('npglobid',),
 				'easy_search'  : ('name', 'title'),
 				'detail_pane'  : ('netprofile_core.views', 'dpane_simple')
 			}
@@ -5014,7 +5289,8 @@ class GlobalSetting(Base, DynamicSetting):
 		nullable=False,
 		info={
 			'header_string' : _('Section'),
-			'filter_type'   : 'list'
+			'filter_type'   : 'list',
+			'column_flex'   : 2
 		}
 	)
 	module_id = Column(
@@ -5025,7 +5301,8 @@ class GlobalSetting(Base, DynamicSetting):
 		nullable=False,
 		info={
 			'header_string' : _('Module'),
-			'filter_type'   : 'list'
+			'filter_type'   : 'list',
+			'column_flex'   : 2
 		}
 	)
 	name = Column(
@@ -5033,7 +5310,8 @@ class GlobalSetting(Base, DynamicSetting):
 		Comment('Global parameter name'),
 		nullable=False,
 		info={
-			'header_string' : _('Name')
+			'header_string' : _('Name'),
+			'column_flex'   : 2
 		}
 	)
 	title = Column(
@@ -5041,7 +5319,8 @@ class GlobalSetting(Base, DynamicSetting):
 		Comment('Global parameter title'),
 		nullable=False,
 		info={
-			'header_string' : _('Title')
+			'header_string' : _('Title'),
+			'column_flex'   : 3
 		}
 	)
 	type = Column(
@@ -5051,7 +5330,8 @@ class GlobalSetting(Base, DynamicSetting):
 		default='text',
 		server_default='text',
 		info={
-			'header_string' : _('Type')
+			'header_string' : _('Type'),
+			'column_flex'   : 1
 		}
 	)
 	value = Column(
@@ -5059,7 +5339,8 @@ class GlobalSetting(Base, DynamicSetting):
 		Comment('Global parameter current value'),
 		nullable=False,
 		info={
-			'header_string' : _('Value')
+			'header_string' : _('Value'),
+			'column_flex'   : 3
 		}
 	)
 	default = Column(
@@ -5068,7 +5349,8 @@ class GlobalSetting(Base, DynamicSetting):
 		nullable=True,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Default')
+			'header_string' : _('Default'),
+			'column_flex'   : 3
 		}
 	)
 	options = Column(
@@ -5178,9 +5460,9 @@ class UserSettingType(Base, DynamicSetting):
 				'show_in_menu' : 'admin',
 				'menu_section' : _('Settings'),
 				'menu_name'    : _('User Setting Types'),
-				'menu_order'   : 73,
 				'default_sort' : ({ 'property': 'name' ,'direction': 'ASC' },),
-				'grid_view'    : ('module', 'section', 'name', 'title', 'type', 'default'),
+				'grid_view'    : ('npustid', 'module', 'section', 'name', 'title', 'type', 'default', 'clientok'),
+				'grid_hidden'  : ('npustid', 'clientok'),
 				'easy_search'  : ('name', 'title'),
 				'detail_pane'  : ('netprofile_core.views', 'dpane_simple')
 			}
@@ -5205,7 +5487,8 @@ class UserSettingType(Base, DynamicSetting):
 		nullable=False,
 		info={
 			'header_string' : _('Section'),
-			'filter_type'   : 'list'
+			'filter_type'   : 'list',
+			'column_flex'   : 2
 		}
 	)
 	module_id = Column(
@@ -5216,7 +5499,8 @@ class UserSettingType(Base, DynamicSetting):
 		nullable=False,
 		info={
 			'header_string' : _('Module'),
-			'filter_type'   : 'list'
+			'filter_type'   : 'list',
+			'column_flex'   : 2
 		}
 	)
 	name = Column(
@@ -5224,7 +5508,8 @@ class UserSettingType(Base, DynamicSetting):
 		Comment('User parameter name'),
 		nullable=False,
 		info={
-			'header_string' : _('Name')
+			'header_string' : _('Name'),
+			'column_flex'   : 2
 		}
 	)
 	title = Column(
@@ -5232,7 +5517,8 @@ class UserSettingType(Base, DynamicSetting):
 		Comment('User parameter title'),
 		nullable=False,
 		info={
-			'header_string' : _('Title')
+			'header_string' : _('Title'),
+			'column_flex'   : 3
 		}
 	)
 	type = Column(
@@ -5242,7 +5528,8 @@ class UserSettingType(Base, DynamicSetting):
 		default='text',
 		server_default='text',
 		info={
-			'header_string' : _('Type')
+			'header_string' : _('Type'),
+			'column_flex'   : 1
 		}
 	)
 	default = Column(
@@ -5251,7 +5538,8 @@ class UserSettingType(Base, DynamicSetting):
 		nullable=True,
 		server_default=text('NULL'),
 		info={
-			'header_string' : _('Default')
+			'header_string' : _('Default'),
+			'column_flex'   : 3
 		}
 	)
 	options = Column(
@@ -5331,7 +5619,9 @@ class UserSetting(Base):
 
 	@classmethod
 	def _filter_section(cls, query, value):
-		return query.join(UserSettingType, UserSettingSection).filter(UserSettingSection.id == value)
+		if isinstance(value, int):
+			return query.join(UserSettingType, UserSettingSection).filter(UserSettingSection.id == value)
+		return query
 
 	__tablename__ = 'np_usersettings_def'
 	__table_args__ = (
@@ -5351,9 +5641,9 @@ class UserSetting(Base):
 				'show_in_menu' : 'admin',
 				'menu_section' : _('Settings'),
 				'menu_name'    : _('User Settings'),
-				'menu_order'   : 74,
 				'default_sort' : (),
-				'grid_view'    : ('user', 'type', 'value'),
+				'grid_view'    : ('npusid', 'user', 'type', 'value'),
+				'grid_hidden'  : ('npusid',),
 				'detail_pane'  : ('netprofile_core.views', 'dpane_simple'),
 				'extra_search' : (
 					SelectFilter('section', _filter_section,
@@ -5385,7 +5675,8 @@ class UserSetting(Base):
 		nullable=False,
 		info={
 			'header_string' : _('User'),
-			'filter_type'   : 'none'
+			'filter_type'   : 'none',
+			'column_flex'   : 1
 		}
 	)
 	type_id = Column(
@@ -5396,7 +5687,8 @@ class UserSetting(Base):
 		nullable=False,
 		info={
 			'header_string' : _('Type'),
-			'filter_type'   : 'list'
+			'filter_type'   : 'list',
+			'column_flex'   : 1
 		}
 	)
 	value = Column(
@@ -5404,7 +5696,8 @@ class UserSetting(Base):
 		Comment('User parameter current value'),
 		nullable=False,
 		info={
-			'header_string' : _('Value')
+			'header_string' : _('Value'),
+			'column_flex'   : 2
 		}
 	)
 
@@ -5447,9 +5740,9 @@ class DataCache(Base):
 				'show_in_menu' : 'admin',
 				'menu_section' : _('Settings'),
 				'menu_name'    : _('Data Cache'),
-				'menu_order'   : 80,
 				'default_sort' : (),
-				'grid_view'    : ('user', 'dcname'),
+				'grid_view'    : ('dcid', 'user', 'dcname'),
+				'grid_hidden'  : ('dcid',),
 				'form_view'    : ('user', 'dcname', 'dcvalue'),
 				'easy_search'  : ('dcname',),
 				'detail_pane'  : ('netprofile_core.views', 'dpane_simple')
@@ -5474,7 +5767,8 @@ class DataCache(Base):
 		Comment('Data cache owner'),
 		nullable=False,
 		info={
-			'header_string' : _('User')
+			'header_string' : _('User'),
+			'column_flex'   : 1
 		}
 	)
 	name = Column(
@@ -5483,7 +5777,8 @@ class DataCache(Base):
 		Comment('Data cache name'),
 		nullable=False,
 		info={
-			'header_string' : _('Name')
+			'header_string' : _('Name'),
+			'column_flex'   : 1
 		}
 	)
 	value = Column(
@@ -5559,7 +5854,8 @@ class Calendar(Base):
 			'info'          : {
 				'menu_name'     : _('My Calendars'),
 				'default_sort'  : ({ 'property': 'name' ,'direction': 'ASC' },),
-				'grid_view'     : ('name', 'group', 'group_access', 'global_access'),
+				'grid_view'     : ('calid', 'name', 'user', 'group', 'group_access', 'global_access'),
+				'grid_hidden'   : ('calid', 'user'),
 				'form_view'     : ('name', 'group', 'group_access', 'global_access', 'style', 'descr'),
 				'easy_search'   : ('name', 'descr'),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
@@ -5716,11 +6012,11 @@ def _wizfld_import_cal(fld, model, req, **kwargs):
 	return {
 		'xtype'          : 'combobox',
 		'allowBlank'     : False,
-		'name'           : 'calid',
+		'name'           : 'caldef',
 		'format'         : 'string',
 		'displayField'   : 'Title',
 		'valueField'     : 'CalendarId',
-		'hiddenName'     : 'calid',
+		'hiddenName'     : 'caldef',
 		'editable'       : False,
 		'forceSelection' : True,
 		'store'          : {
@@ -5728,16 +6024,16 @@ def _wizfld_import_cal(fld, model, req, **kwargs):
 			'model'         : 'Extensible.calendar.data.CalendarModel',
 			'directFn'      : 'NetProfile.api.Calendar.cal_avail',
 			'totalProperty' : 'total',
-			'root'          : 'calendars'
+			'rootProperty'  : 'calendars'
 		},
 		'fieldLabel'     : _('Calendar'),
 		'tpl'            : '<tpl for="."><div class="x-boundlist-item">{Owner}: {Title}</div></tpl>'
 	}
 
-def _wizcb_import_cal_submit(wiz, step, act, val, req):
-	if ('calid' not in val) or (val['calid'][:5] != 'user-'):
+def _wizcb_import_cal_submit(wiz, em, step, act, val, req):
+	if ('caldef' not in val) or (val['caldef'][:5] != 'user-'):
 		raise ValueError
-	cal_id = int(val['calid'][5:])
+	cal_id = int(val['caldef'][5:])
 	sess = DBSession()
 	cal = sess.query(Calendar).get(cal_id)
 	if (not cal) or (not cal.can_read(req.user)):
@@ -5752,7 +6048,7 @@ def _wizcb_import_cal_submit(wiz, step, act, val, req):
 		style = int(val.get('style'))
 		if 0 < style <= len(_calendar_styles):
 			imp.style = style
-	except ValueError:
+	except (TypeError, ValueError):
 		pass
 	sess.add(imp)
 	return {
@@ -5776,6 +6072,7 @@ class CalendarImport(Base):
 				'menu_name'     : _('Other Calendars'),
 				'default_sort'  : ({ 'property': 'calid' ,'direction': 'ASC' },),
 				'grid_view'     : (
+					'calimpid',
 					'calendar',
 					MarkupColumn(
 						name='real_name',
@@ -5784,6 +6081,7 @@ class CalendarImport(Base):
 						template='{real_name}'
 					)
 				),
+				'grid_hidden'   : ('calimpid',),
 				'form_view'     : ('calendar', 'name', 'style'),
 				'easy_search'   : ('name',),
 				'extra_data'    : ('real_name',),
@@ -5795,7 +6093,8 @@ class CalendarImport(Base):
 						id='generic',
 						on_submit=_wizcb_import_cal_submit
 					),
-					title=_('Import a calendar')
+					title=_('Import a calendar'),
+					validator='ImportCalendar'
 				)
 			}
 		}
@@ -5911,7 +6210,8 @@ class Event(Base):
 			'info'          : {
 				'menu_name'     : _('Events'),
 				'default_sort'  : ({ 'property': 'dtstart' ,'direction': 'DESC' },),
-				'grid_view'     : ('user', 'calendar', 'summary', 'dtstart', 'dtend'),
+				'grid_view'     : ('evid', 'user', 'calendar', 'summary', 'ctime', 'mtime', 'dtstart', 'dtend'),
+				'grid_hidden'   : ('evid', 'ctime', 'mtime'),
 				'form_view'     : (
 					'user', 'calendar', 'summary',
 					'dtstart', 'dtend', 'allday',
