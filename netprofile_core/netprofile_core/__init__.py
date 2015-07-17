@@ -109,7 +109,11 @@ class Module(ModuleBase):
 			DataCache,
 			Calendar,
 			CalendarImport,
-			Event
+			Event,
+			CommunicationType,
+			UserCommunicationChannel,
+			UserPhone,
+			UserEmail
 		)
 
 	@classmethod
@@ -163,6 +167,10 @@ class Module(ModuleBase):
 			Privilege(
 				code='BASE_GROUPS',
 				name='Access: Groups'
+			),
+			Privilege(
+				code='BASE_FILES',
+				name='Access: Files'
 			),
 			Privilege(
 				code='USERS_LIST',
@@ -464,6 +472,85 @@ class Module(ModuleBase):
 
 		sess.add(admin)
 
+		commtypes = (
+			CommunicationType(
+				name='SIP',
+				icon='sip',
+				uri_protocol='sip',
+				description='Text/voice/video via SIP'
+			),
+			CommunicationType(
+				name='Jabber/XMPP',
+				icon='xmpp',
+				uri_protocol='xmpp',
+				uri_format='{proto}:{address}?roster',
+				description='Text/voice/video via XMPP (includes Jabber and Google Talk)'
+			),
+			CommunicationType(
+				name='IRC',
+				icon='irc',
+				uri_protocol='irc',
+				uri_format='{proto}://{address}',
+				description='Text chat via IRC'
+			),
+			CommunicationType(
+				name='Yahoo! Messenger',
+				icon='ymsgr',
+				uri_protocol='ymsgr',
+				uri_format='{proto}:addfriend?{address}',
+				description='Text/voice/video via Yahoo! Messenger'
+			),
+			CommunicationType(
+				name='Skype',
+				icon='skype',
+				uri_protocol='skype',
+				description='Text/voice/video via Skype'
+			),
+			CommunicationType(
+				name='AOL Instant Messenger',
+				icon='aim',
+				uri_protocol='aim',
+				uri_format='{proto}:addbuddy?screenname={address}',
+				description='Text/voice/video via AOL Instant Messenger'
+			),
+			CommunicationType(
+				name='ICQ',
+				icon='icq',
+				uri_protocol='icq',
+				uri_format='{proto}:message?uin={address}',
+				description='Text/voice/video via AOL Instant Messenger'
+			),
+			CommunicationType(
+				name='WhatsApp',
+				icon='whatsapp',
+				uri_protocol='whatsapp',
+				uri_format='{proto}://send?abid={address}',
+				description='Text/voice/video via WhatsApp'
+			),
+			CommunicationType(
+				name='Viber',
+				icon='viber',
+				uri_protocol='viber',
+				description='Text/voice/video via Viber'
+			),
+			CommunicationType(
+				name='FaceTime',
+				icon='facetime',
+				uri_protocol='facetime',
+				uri_format='{proto}://{address}',
+				description='Voice/video via FaceTime'
+			),
+			CommunicationType(
+				name='Apple iMessage',
+				icon='imessage',
+				uri_protocol='imessage',
+				description='Text/voice/video via Apple iMessage'
+			)
+		)
+
+		for obj in commtypes:
+			sess.add(obj)
+
 	def get_menus(self, request):
 		loc = get_localizer(request)
 		return (
@@ -471,7 +558,7 @@ class Module(ModuleBase):
 			Menu('users', title=loc.translate(_('Users')), order=20, direct='users', options={ # FIXME: add permission= ?
 				'disableSelection' : True
 			}),
-			Menu('folders', title=loc.translate(_('Folders')), order=30, direct='folders', permission='FILES_LIST', options={
+			Menu('folders', title=loc.translate(_('Folders')), order=30, direct='folders', permission='BASE_FILES', options={
 				'rootVisible' : True,
 				'hideHeaders' : True,
 				'columns'     : ({

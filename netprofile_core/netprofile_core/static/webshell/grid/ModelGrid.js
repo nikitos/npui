@@ -26,6 +26,7 @@ Ext.define('NetProfile.grid.ModelGrid', {
 		'NetProfile.window.CenterWindow',
 		'NetProfile.form.field.ModelSelect',
 		'NetProfile.form.field.SimpleModelSelect',
+		'NetProfile.form.field.FileSelect',
 		'NetProfile.form.field.NullableComboBox',
 		'NetProfile.panel.Wizard',
 		'NetProfile.grid.filters.filter.Date',
@@ -337,7 +338,7 @@ Ext.define('NetProfile.grid.ModelGrid', {
 				}
 				else
 					this.selectRecord(record);
-				return false;
+				return true;
 			},
 			scope: this
 		});
