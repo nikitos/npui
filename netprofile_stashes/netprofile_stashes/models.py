@@ -159,9 +159,7 @@ class PassbookPass(Base):
 				'cap_edit'      : 'STASHES_EDIT',
 				'cap_delete'    : 'STASHES_DELETE',
 				'menu_name'     : _('Pass Tokens'),
-				'menu_main'     : True,
 				'show_in_menu'  : 'modules',
-				'menu_order'    : 20,########## correct all names
 				'default_sort'  : ({ 'property': 'passid', 'direction': 'ASC' },),
 				'grid_view'     : ('stash', 'token', 'serial'),
 				'form_view'     : ('stash', 'token', 'serial'),

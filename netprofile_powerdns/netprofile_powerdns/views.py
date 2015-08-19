@@ -105,6 +105,7 @@ def edit_record(request):
 	csrf = request.POST.get('csrf', '')
 	access_user = sess.query(AccessEntity).filter_by(nick=str(request.user)).first()
 	user_domains = [d.id for d in sess.query(PDNSDomain).filter_by(account=str(request.user))]
+	domain_id = int(request.POST.get('recordid', None))
 	
 	if csrf != request.get_csrf():
 		request.session.flash({
@@ -115,14 +116,14 @@ def edit_record(request):
 	else:
 		rectype = request.POST.get('type', None)
 		if rectype == "domain":
-			domain = sess.query(PDNSDomain).filter_by(id=int(request.POST.get('domainid', None))).first()
+			domain = sess.query(PDNSDomain).filter_by(id=domain_id).first()
 			if domain.id in user_domains:
 				domain.name = request.POST.get('hostName', None)
 				domain.dtype = request.POST.get('hostType', None)
 				domain.master = request.POST.get('hostValue', None)
 
 		elif rectype == "record":
-			record = sess.query(PDNSRecord).filter_by(id=int(request.POST.get('recordid', None))).first()
+			record = sess.query(PDNSRecord).filter_by(id=domain_id).first()
 			if record.domain_id in user_domains:
 				record.name = request.POST.get('name', None)
 				record.content = request.POST.get('content', None)

@@ -85,7 +85,9 @@
 		    ${gen_block('stashes.cl.block.entity_menu', stash=stash, a=a) | n}
 		  </ul>
 		</div>
+		% if stash.passes:
                 <a href="${req.route_url('stashes.cl.accounts', traverse=('getpass'))}/v1/passes/${pass_id}/${stash.passes[-1].serial}?authtoken=${stash.passes[-1].token}">[GET USER STASH]</a>
+		% endif
 		% if a.access_state:
 		  <span class="label label-danger pull-right">${a.access_state_string(req)}</span>
 		% endif

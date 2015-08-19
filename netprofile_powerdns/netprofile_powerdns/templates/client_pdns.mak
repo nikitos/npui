@@ -97,8 +97,8 @@
 			    </div>
 			    
 			    <div class="form-group">
-			      <select name="type" class="form-control" id="type">
-				% for o in ["A", "AAAA", "CNAME", "MX", "SOA", "TXT", "PRT", "HINFO", "SRV", "NAPTR"]:
+			      <select name="rtype" class="form-control" id="rtype">
+				% for o in ["A", "AAAA", "CNAME", "MX", "NS", "SOA", "TXT", "PRT", "HINFO", "SRV", "NAPTR"]:
 				  % if o == r.rtype:
        				    <option selected>${o}</option>
 				  % else:
@@ -238,8 +238,8 @@
 		</div>
 		
 		<div class="form-group">
-		  <select name="type" class="form-control" id="type" placeholder="${loc.translate(_("Record Type"))}">
-		    % for o in ["A", "AAAA", "CNAME", "MX", "SOA", "TXT", "PRT", "HINFO", "SRV", "NAPTR"]:
+		  <select name="rtype" class="form-control" id="rtype" placeholder="${loc.translate(_("Record Type"))}">
+		    % for o in ["A", "AAAA", "CNAME", "MX", "NS", "SOA", "TXT", "PRT", "HINFO", "SRV", "NAPTR"]:
        		      <option>${o}</option>
 		    % endfor
 		  </select>
