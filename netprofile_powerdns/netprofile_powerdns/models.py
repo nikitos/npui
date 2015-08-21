@@ -30,12 +30,13 @@ __all__ = [
 'PDNSSupermaster',
 'PDNSTsigkey',
 #'PDNSDomainType',
-#'PDNSRecordType'
+'PDNSFieldType',
+'PDNSTemplateType',
+'PDNSTemplate'
 ]
 
-#we need a simple many-to-many table with 3 fields - id, domainname, access_entity.id 
-#http://wiki.powerdns.com/trac/wiki/fields
 import datetime
+import json
 
 from sqlalchemy import (
 	Column,
@@ -47,18 +48,21 @@ from sqlalchemy import (
 	Unicode,
 	UnicodeText,
 	text,
-	Text
+	Text,
+	PrimaryKeyConstraint
 )
 
 from sqlalchemy.orm import (
 	backref,
 	relationship
 )
+
 from sqlalchemy.dialects.mysql import TINYINT
 
 from sqlalchemy.ext.associationproxy import association_proxy
+from pyramid.threadlocal import get_current_registry
 
-from netprofile.db.connection import Base
+from netprofile.db.connection import Base, DBSession
 from netprofile.db.fields import (
 	ASCIIString,
 	ASCIIText,
@@ -73,11 +77,13 @@ from netprofile.db.fields import (
 from netprofile.db.ddl import Comment
 from netprofile.tpl import TemplateObject
 from netprofile.ext.columns import MarkupColumn
+from netprofile.common.hooks import register_hook
 from netprofile.ext.wizards import (
 	SimpleWizard,
 	Step,
 	Wizard
 )
+from netprofile.ext.data import ExtModel
 
 from pyramid.i18n import (
 	TranslationStringFactory,
@@ -86,24 +92,255 @@ from pyramid.i18n import (
 
 _ = TranslationStringFactory('netprofile_powerdns')
 
+@register_hook('np.wizard.init.powerdns.PDNSTemplate')
+def _wizcb_pdnstemplate_submit(wiz, step, act, val, req):
+	sess = DBSession()
+	cfg = get_current_registry().settings
 
-class PDNSRecordType(DeclEnum):
+	fieldIDs = json.loads(val['field_id'])
+	fieldlist = val['field']
+	templateName = val['template']
+	templId = val['templ_id']
+	print(val)
+	for fid in fieldIDs:
+		resvalue = {'templ_id':templId, 'field_id':fid, 'template':templateName, 'field': sess.query(PDNSFieldType).filter(PDNSFieldType.id==fid).first()}
+		em = ExtModel(PDNSTemplate)
+		obj = PDNSTemplate()
+		em.set_values(obj, resvalue, req, True)
+		sess.add(obj)
+		sess.flush()
+
+	return {
+		'do'     : 'close',
+		'reload' : True
+		}
+
+
+
+class PDNSFieldType(Base):
 	"""
-	PDNS Domain Record Types
+	PDNS Template Field Types
 	"""
-	SOA = 'SOA', _('Start of Authority Record'), 10
-	NS = 'NS', _('Name Server Record'), 20
-	MX = 'MX', _('Mail Exchange Record'), 30
-	A = 'A', _('Address Record'), 40
-	AAAA = 'AAAA', _('IPv6 Address Record'), 50
-	CNAME = 'CNAME', _('Canonical Name Record'), 60
-	TXT = 'TXT', _('Text Record'), 70
-	PTR = 'PTR', _('Pointer Record'), 80
-	HINFO = 'HINFO', _('Hardware Info Record'), 90
-	SRV = 'SRV', _('Service Locator'), 100 
-	NAPTR = 'NAPTR', _('Naming Authority Pointer'), 110
+	__tablename__ = 'pdns_recordtypes'
+	__table_args__ = (
+		Comment('PowerDNS Field Types'),
+		{
+			'mysql_engine'  : 'InnoDB',
+			'mysql_charset' : 'utf8',
+			'info'          : {
+				'cap_menu'      : 'BASE_DOMAINS',
+				#'cap_read'      : 'DOMAINS_LIST',
+				#'cap_create'    : 'DOMAINS_CREATE',
+				#'cap_edit'      : 'DOMAINS_EDIT',
+				#'cap_delete'    : 'DOMAINS_DELETE',
+				'show_in_menu'  : 'admin',
+				'menu_name'     : _('PDNS Record Types'),
+				'menu_order'    : 50,
+				'default_sort'  : ({ 'property': 'name' ,'direction': 'ASC' },),
+				'grid_view'     : ('name', 'defaultvalue'
+				),
+				'form_view'		: ('name', 'defaultvalue', 'descr'
+				),
+				'easy_search'   : ('name',),
+				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
+				'create_wizard' : SimpleWizard(title=_('Add new domain record type'))
+			}
+		}
+	)
+
+	id = Column(
+		'id',
+		UInt32(),
+		Sequence('pdns_recordtypes_recordidid_seq'),
+		Comment('Record Type ID'),
+		primary_key=True,
+		nullable=False,
+		info={
+			'header_string' : _('ID')
+			}
+		)
+	name = Column(
+		'name',
+		Unicode(255),
+		Comment('Type name'),
+		nullable=False,
+		info={
+			'header_string' : _('Type Name')
+			}
+		)
+	descr = Column(
+        'descr',
+        UnicodeText(),
+        Comment('Record type description'),
+        nullable=True,
+        default=None,
+        server_default=text('NULL'),
+        info={
+            'header_string' : _('Description')
+        }
+    )
+	defaultvalue = Column(
+		'defaultvalue',
+		Unicode(255),
+		Comment('Field default value'),
+		nullable=True,
+		default=None,
+		info={
+			'header_string' : _('Default Value')
+			}
+		)
+	def __str__(self):
+		return self.name
 
 
+class PDNSTemplateType(Base):
+	"""
+	PowerDNS Service Template  Typeclass
+	"""
+	__tablename__ = 'pdns_templatetypes'
+	__table_args__ = (
+		Comment('PowerDNS Template Types'),
+		{
+			'mysql_engine'  : 'InnoDB',
+			'mysql_charset' : 'utf8',
+			'info'          : {
+				'cap_menu'      : 'BASE_DOMAINS',
+				#'cap_read'      : 'DOMAINS_LIST',
+				#'cap_create'    : 'DOMAINS_CREATE',
+				#'cap_edit'      : 'DOMAINS_EDIT',
+				#'cap_delete'    : 'DOMAINS_DELETE',
+				'show_in_menu'  : 'admin',
+				'menu_name'     : _('PDNS Template Types'),
+				'menu_order'    : 50,
+				'default_sort'  : ({ 'property': 'name' ,'direction': 'ASC' },),
+				'grid_view'     : ('name', 'descr'
+				),
+				'form_view'		: ('name', 'descr'
+				),
+				'easy_search'   : ('name',),
+				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
+				'create_wizard' : SimpleWizard(title=_('Add new template type'))
+			}
+		}
+	)
+	id = Column(
+		'id',
+		UInt32(),
+		Sequence('pdns_templatetypes_templateid_seq'),
+		Comment('Template Type ID'),
+		primary_key=True,
+		nullable=False,
+		info={
+			'header_string' : _('ID')
+			}
+		)
+	name = Column(
+		'name',
+		Unicode(255),
+		Comment('Template Type'),
+		nullable=False,
+		info={
+			'header_string' : _('Template Type')
+			}
+		)
+	descr = Column(
+        'descr',
+        UnicodeText(),
+        Comment('Description'),
+        nullable=True,
+        default=None,
+        server_default=text('NULL'),
+        info={
+            'header_string' : _('Description')
+        }
+    )
+	fields = association_proxy('template_fields', 'field')#relationship('PDNSFieldType')
+	
+	def __str__(self):
+		return self.name
+
+
+class PDNSTemplate(Base):
+	"""
+	PDNS Association table for both template and field types
+	"""
+	__tablename__ = 'pdns_templates'
+	__table_args__ = (
+		Comment('PowerDNS Template-Field Association Table'),
+		{
+			'mysql_engine'  : 'InnoDB',
+			'mysql_charset' : 'utf8',
+			'info'          : {
+				'cap_menu'      : 'BASE_DOMAINS',
+				#'cap_read'      : 'DOMAINS_LIST',
+				#'cap_create'    : 'DOMAINS_CREATE',
+				#'cap_edit'      : 'DOMAINS_EDIT',
+				#'cap_delete'    : 'DOMAINS_DELETE',
+				'show_in_menu'  : 'admin',
+				'menu_name'     : _('PDNS Templates'),
+				'menu_order'    : 50,
+				'grid_view'     : ('template', 'field', 'defaultvalues'
+				),
+				'form_view'		: ('template', 'field', 'defaultvalues'
+				),
+				'easy_search'   : ('template',),
+				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
+				'create_wizard' : Wizard(
+					Step(
+						'template', 'field',
+						id='generic', title=_('Add new template'),
+						on_submit=_wizcb_pdnstemplate_submit
+						)
+					)
+				}
+			}
+		)
+	id = Column(
+		'relationid',
+		UInt32(),
+		Sequence('pdns_templates_relationid_seq'),
+		Comment('ID'),
+		primary_key=True,
+		nullable=False,
+		info={
+			'header_string' : _('ID')
+		}
+	)
+	templateid = Column(
+		'templ_id', 
+		UInt32(),
+		ForeignKey('pdns_templatetypes.id'),
+		info={
+			'header_string' : _('Template')
+			}
+		)
+	fieldid = Column(
+		'field_id',
+		UInt32(),
+		ForeignKey('pdns_recordtypes.id'),
+		info={
+			'header_string' : _('Record'),
+			'editor_xtype'  : 'multimodelselect'
+			}
+		)
+	defaultvalues = Column(
+		'defvalues',
+		Unicode(255),
+		Comment('Default Values'),
+		nullable=True,
+		default=None,
+		info={
+			'header_string' : _('Default Values')
+		}
+	)
+	template = relationship("PDNSTemplateType", backref=backref('template_fields', cascade="all, delete-orphan"))
+	field = relationship("PDNSFieldType")
+
+	def __str__(self):
+		return '%s %s Record' % (self.template.name, self.field.name)
+ 
+
+#don't need it for now 
 class PDNSDomainType(DeclEnum):
 	"""
 	PDNS Domain Types
@@ -531,6 +768,8 @@ class PDNSDomain(Base):
 			}
 		)
 
+	domainrecords = relationship("PDNSRecord", cascade='all, delete-orphan')
+
 	def __str__(self):
 		return self.name
 	
@@ -827,3 +1066,5 @@ class PDNSTsigkey(Base):
 
 	def __str__(self):
 		return self.name
+
+

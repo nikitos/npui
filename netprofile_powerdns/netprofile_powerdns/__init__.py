@@ -81,15 +81,22 @@ class Module(ModuleBase):
 			models.PDNSSupermaster,
 			models.PDNSTsigkey,
 			#models.PDNSDomainType,
-			#models.PDNSRecordType
+			models.PDNSFieldType,
+			models.PDNSTemplateType,
+			models.PDNSTemplate
 		)
 
-	def get_css(self, request):
-		return (
-			'netprofile_powerdns:static/css/main.css',
-		)
+	#def get_autoload_js(self, request):
+	#	return (
+	#		'NetProfile.powerdns.form.DynamicForm',
+	#		)
+
+	#def get_css(self, request):
+	#	return (
+	#		'netprofile_powerdns:static/css/main.css',
+	#		)
 
 	@property
 	def name(self):
 		return _('PowerDNS Service')
-
+	
