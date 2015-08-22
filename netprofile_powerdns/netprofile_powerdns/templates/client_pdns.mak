@@ -2,12 +2,36 @@
 <%inherit file="netprofile_access:templates/client_layout.mak"/>
 
 
-## Domain creation button
-  <button class="btn btn-primary pull-right" data-toggle="modal" data-target="#formModalDomain">
-    <span class="glyphicon glyphicon-plus"></span>
-    ${loc.translate(_("Create a new domain"))}
-  </button>
-## domain button end 
+## Domain creation + create from template button
+## here we should create dynamic buttons, from the data, passed to the template
+## for the first button we take the first element from templates list  
+  <div class="btn-group pull-right"> 
+    <button class="btn btn-primary" data-toggle="modal" data-target="#formModal${templates[0].name.capitalize()}">
+      <span class="glyphicon glyphicon-plus"></span>
+      ${loc.translate(_("Create "+templates[0].name))}
+    </button>
+
+    <button type="button" class="btn btn-primary dropdown-toggle" data-toggle="dropdown" aria-expanded="false">
+      <span class="caret"></span>
+      <span class="sr-only">${loc.translate(_("More options..."))}</span>
+    </button>
+    <ul class="dropdown-menu" role="menu">
+      ## services templates 
+      % for t in templates:
+        <li><button class="btn btn-link" data-toggle="modal" data-target="#formModal${t.name.capitalize()}">${loc.translate(_("Create "+t.name))}</button></li>
+        ##<li><a href="#">Somegthing else...</a></li>
+      % endfor
+    </ul>
+  </div>
+## domain creation + create from template button end 
+
+##% for t in templates:
+## <p> ${t.name}
+##  % for f in t.template_fields:
+##    ${f.field}
+## </p>
+##  % endfor  
+##% endfor
 
   <h1>${loc.translate(_("My domains"))}</h1>
 
@@ -29,9 +53,8 @@
 	    <span class="glyphicon glyphicon-th-list"></span> <strong>${d}</strong></a> 
 	    <a data-toggle="modal" data-target="#formModalDomainRecord${d.id}"><span class="glyphicon glyphicon-plus-sign"></span></a>
 	    <a data-toggle='modal' href='#modalEdit${d.id}'><span class="glyphicon glyphicon-pencil"</a> 
-	    <a data-toggle='modal' href='#modalDeleteDomain${d.id}'><span class="glyphicon glyphicon-remove"></a> 
+	    <a data-toggle='modal' href='#modalDeleteDomain${d.id}'><span class="glyphicon glyphicon-trash"></a> 
 	    <br>
-    	    (should use popover or collapse from bootstrap for records block) <br>
 	  </div>
 	</div>
 	<div id="collapse${d.id}" class="panel-collapse collapse">
@@ -41,9 +64,9 @@
 	    % if d.id in [r.domain_id for r in domainrecords]:
 	      % for r in domainrecords:
       		% if r.domain_id == d.id:
-		  Here's the record:  ${r} 
+		  ${r} 
 		  <a data-toggle='modal' href='#modalRecordEdit${r.id}'><span class="glyphicon glyphicon-pencil"></a> 
-		  <a data-toggle='modal' href='#modalDeleteRecord${r.id}'><span class="glyphicon glyphicon-remove"></a> 
+		  <a data-toggle='modal' href='#modalDeleteRecord${r.id}'><span class="glyphicon glyphicon-trash"></a> 
 		  <br>
 
 		  ## Domain record deletion form start
@@ -97,8 +120,8 @@
 			    </div>
 			    
 			    <div class="form-group">
-			      <select name="rtype" class="form-control" id="rtype">
-				% for o in ["A", "AAAA", "CNAME", "MX", "NS", "SOA", "TXT", "PRT", "HINFO", "SRV", "NAPTR"]:
+			      <select name="type" class="form-control" id="type">
+				% for o in ["A", "AAAA", "CNAME", "MX", "SOA", "TXT", "PRT", "HINFO", "SRV", "NAPTR"]:
 				  % if o == r.rtype:
        				    <option selected>${o}</option>
 				  % else:
@@ -135,6 +158,7 @@
 		  
 		% endif
 	      % endfor
+              <a data-toggle="modal" data-target="#formModalDomainRecord${d.id}"><span class="glyphicon glyphicon-plus-sign">Add new record</a>
 	    % else:
       	      There's no records for this domain yet. <a data-toggle="modal" data-target="#formModalDomainRecord${d.id}"><span class="glyphicon glyphicon-plus-sign">Add one?</a>
 	    % endif  		
@@ -223,7 +247,7 @@
 	    <div class="modal-header">
 	      
 	      <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
-	      <h4 class="modal-title" id="formModalDomainRecordLabel">${loc.translate(_("New DNS record"))}</h4>
+	      <h4 class="modal-title" id="formModalDomainRecordLabel">${loc.translate(_("New DNS record for "))}${d}</h4>
 	      
 	    </div>
 	    <div class="modal-body">
@@ -238,8 +262,8 @@
 		</div>
 		
 		<div class="form-group">
-		  <select name="rtype" class="form-control" id="rtype" placeholder="${loc.translate(_("Record Type"))}">
-		    % for o in ["A", "AAAA", "CNAME", "MX", "NS", "SOA", "TXT", "PRT", "HINFO", "SRV", "NAPTR"]:
+		  <select name="type" class="form-control" id="type" placeholder="${loc.translate(_("Record Type"))}">
+		    % for o in ["A", "AAAA", "CNAME", "MX", "SOA", "TXT", "PRT", "HINFO", "SRV", "NAPTR"]:
        		      <option>${o}</option>
 		    % endfor
 		  </select>
@@ -272,48 +296,6 @@
     
     % endif
   
-  
-    ## Hidden modal domain creation form
-    <div class="modal fade" id="formModalDomain" tabindex="-1" role="dialog" aria-labelledby="formModalDomainLabel" aria-hidden="true">
-      <div class="modal-dialog">
-	<div class="modal-content">
-	  <div class="modal-header">
-	    
-	    <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
-	    <h4 class="modal-title" id="formModalDomainLabel">${loc.translate(_("New domain"))}</h4>
-	    
-	  </div>
-	  <div class="modal-body">
-	    <form method="POST" action="${req.route_url("pdns.cl.create")}" class="form-inline" role="form" id="hostForm">
-	      
-	      <div class="form-group">
-		<input type="text" name="hostName" class="form-control" id="hostName" placeholder="${loc.translate(_("Enter host"))}"/>
-	      </div>
-	      
-	      <div class="form-group">
-		<select name="hostType" class="form-control" id="hosttype" placeholder=${loc.translate(_("Host type"))}>
-		  % for i in ["NATIVE", "MASTER", "SLAVE", "SUPERSLAVE"]:
-		    <option>${i}</option>
-		  % endfor
-		</select>
-	      </div>
-	      
-	      <div class="form-group">
-		<input type="text" name="hostValue" class="form-control" id="hostValue" placeholder="${loc.translate(_("Master nameserver IP"))}">
-		<input type="hidden" name="user" id="user" value="${accessuser.nick}">
-		<input type="hidden" name="type" id="type" value="domain">
-		<input type="hidden" name="csrf" value="${req.get_csrf()}" />
-	      </div>
-	      
-	  </div>
-	  <div class="modal-footer">
-	    <input type="submit" value="${loc.translate(_("Create"))}" class="btn btn-primary"/>
-	    </form>
-	    
-	    <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
-	    
-	  </div>
-	</div>
-      </div>
-    </div>
+  ##  services forms are here  
+  <%include file="netprofile_powerdns:templates/services_templates_pdns.mak"/>
   </div>
