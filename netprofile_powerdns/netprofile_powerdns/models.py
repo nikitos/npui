@@ -81,9 +81,13 @@ from netprofile.common.hooks import register_hook
 from netprofile.ext.wizards import (
 	SimpleWizard,
 	Step,
-	Wizard
+	Wizard,
+	ExternalWizardField
 )
-from netprofile.ext.data import ExtModel
+from netprofile.ext.data import (
+	ExtModel,
+	_name_to_class
+)
 
 from pyramid.i18n import (
 	TranslationStringFactory,
@@ -92,30 +96,38 @@ from pyramid.i18n import (
 
 _ = TranslationStringFactory('netprofile_powerdns')
 
-@register_hook('np.wizard.init.powerdns.PDNSTemplate')
-def _wizcb_pdnstemplate_submit(wiz, step, act, val, req):
-	sess = DBSession()
-	cfg = get_current_registry().settings
+def _wizcb_pdnstemplate_submit(cls):
+	def _wizcb_submit_hdl(wiz, em, step, act, val, req):
+		xcls = cls
+		if isinstance(xcls, str):
+			xcls = _name_to_class(xcls)
 
-	fieldIDs = json.loads(val['field_id'])
-	fieldlist = val['field']
-	templateName = val['template']
-	templId = val['templ_id']
-	print(val)
-	for fid in fieldIDs:
-		resvalue = {'templ_id':templId, 'field_id':fid, 'template':templateName, 'field': sess.query(PDNSFieldType).filter(PDNSFieldType.id==fid).first()}
-		em = ExtModel(PDNSTemplate)
-		obj = PDNSTemplate()
-		em.set_values(obj, resvalue, req, True)
-		sess.add(obj)
-		sess.flush()
+		sess = DBSession()
+		cfg = get_current_registry().settings
+	
+		fieldIDs = json.loads(val['field_id'])
+		fieldlist = val['field']
+		templateName = val['template']
+		templId = val['templ_id']
 
-	return {
-		'do'     : 'close',
-		'reload' : True
-		}
+		for fid in fieldIDs:
+			resvalue = {'templ_id' : templId, 
+						'field_id' : fid, 
+						'template' : templateName, 
+						'field'    : sess.query(PDNSFieldType).filter(PDNSFieldType.id==fid).first()
+						}
+			em = ExtModel(xcls)
+			obj = xcls()
+			em.set_values(obj, resvalue, req, True)
+			sess.add(obj)
+			sess.flush()
+			print("TROLOLO")
+		return {
+			'do'     : 'close',
+			'reload' : True
+			}
 
-
+	return _wizcb_submit_hdl
 
 class PDNSFieldType(Base):
 	"""
@@ -289,8 +301,9 @@ class PDNSTemplate(Base):
 					Step(
 						'template', 'field',
 						id='generic', title=_('Add new template'),
-						on_submit=_wizcb_pdnstemplate_submit
-						)
+						on_submit=_wizcb_pdnstemplate_submit('PDNSTemplate')
+						),
+					title=_('New domain template'), validator='CreateDomainTemplate'
 					)
 				}
 			}
