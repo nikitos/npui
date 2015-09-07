@@ -53,6 +53,12 @@ class Module(ModuleBase):
 			models.MailingSubscription,
 		)
 
+	def get_autoload_js(self, request):
+		return (
+			'NetProfile.view.MultiModelSelect',
+			'Ext.ux.form.TinyMCETextArea'
+			)
+
 	@property
 	def name(self):
 		return _('Mailing')

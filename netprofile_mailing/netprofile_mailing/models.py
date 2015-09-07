@@ -107,79 +107,82 @@ from netprofile_access.models import AccessEntity
 
 _ = TranslationStringFactory('netprofile_mailing')
 
-@register_hook('np.wizard.init.mailing.MailingLog')
-def _wizcb_maillog_submit(wiz, step, act, val, req):
-	sess = DBSession()
-	cfg = get_current_registry().settings
-	mailer = get_mailer(req)
+def _wizcb_maillog_submit(cls):
+	def _wizcb_submit_hdl(wiz, em, step, act, val, req):
+		xcls = cls
+		if isinstance(xcls, str):
+			xcls = _name_to_class(xcls)
 
-	
+		sess = DBSession()
+		cfg = get_current_registry().settings
+		mailer = get_mailer(req)
 
-	userIDs = json.loads(val['userid'])
-	userlist = val['user']
-	templateName = val['template']
-	templId = val['templid']
-	receiver = None
-	sender = cfg.get('netprofile.mailing.sender', 'admin@mysite.com')
-	sendername = cfg.get('sender.name', 'localadmin')
-	mailhost = cfg.get('mail.host', 'localhost')
+		userIDs = json.loads(val['userid'])
+		userlist = val['user']
+		templateName = val['template']
+		templId = val['templid']
+		receiver = None
+		sender = cfg.get('netprofile.mailing.sender', 'admin@mysite.com')
+		sendername = cfg.get('sender.name', 'localadmin')
+		mailhost = cfg.get('mail.host', 'localhost')
 
-	for userid in userIDs:
-		resvalue = {'userid' : userid}
-		user = sess.query(AccessEntity).filter(AccessEntity.id==userid).first()
-		subscr = sess.query(MailingSubscription).filter(MailingSubscription.userid==userid).first()
-		print("########################## SUBSCR ###########################")
+		for userid in userIDs:
+			resvalue = {'userid' : userid}
+			user = sess.query(AccessEntity).filter(AccessEntity.id==userid).first()
+			subscr = sess.query(MailingSubscription).filter(MailingSubscription.userid==userid).first()
 		
-		#a long try-except statement to check if user is in mailing list
-		try:
-			if subscr.issubscribed is True:
-				templateBody = sess.query(MailingTemplate).filter(MailingTemplate.id==templId).first().body
-				resvalue['user'] = user
-				resvalue['template'] = templateBody
-				resvalue['templid'] = templId
+    		#a long try-except statement to check if user is in mailing list
+			try:
+				if subscr.issubscribed is True:
+					templateBody = sess.query(MailingTemplate).filter(MailingTemplate.id==templId).first().body
+					resvalue['user'] = user
+					resvalue['template'] = templateBody
+					resvalue['templid'] = templId
 		
-				if user.parent:
-					try:
-						receiver = user.parent.email
-					except AttributeError:
-						print("################### USER'S PARENT HAVE NO EMAIL ATTRIBUTE #######################")
+					if user.parent:
+						try:
+							receiver = user.parent.email
+						except AttributeError:
+							#raise error here
+							print("################### USER'S PARENT HAVE NO EMAIL ATTRIBUTE #######################")
 	
-				if receiver is not None:
-					msg_text = Attachment(data=templateBody,
-										  content_type='text/plain; charset=\'utf-8\'',
-										  disposition='inline',
-										  transfer_encoding='quoted-printable'
-										  )
-					msg_html = Attachment(data=templateBody,
-										  content_type='text/html; charset=\'utf-8\'',
-										  disposition='inline',
-										  transfer_encoding='quoted-printable'
-										  )
-					message = Message(
-						subject=(templateName),
-						sender=sender,
-						recipients=(receiver,),
-						body=msg_text,
-						html=msg_html
-						)
+					if receiver is not None:
+						msg_text = Attachment(data=templateBody,
+											  content_type='text/plain; charset=\'utf-8\'',
+											  disposition='inline',
+											  transfer_encoding='quoted-printable'
+											  )
+						msg_html = Attachment(data=templateBody,
+											  content_type='text/html; charset=\'utf-8\'',
+											  disposition='inline',
+											  transfer_encoding='quoted-printable'
+											  )
+						message = Message(
+							subject=(templateName),
+							sender=sender,
+							recipients=(receiver,),
+							body=msg_text,
+							html=msg_html
+							)
 
-					mailer.send(message)
-					resvalue['letteruid'] = hashlib.md5((templateBody + user.nick + str(datetime.datetime.now())).encode()).hexdigest()
-					em = ExtModel(MailingLog)
-					obj = MailingLog()
-					em.set_values(obj, resvalue, req, True)
-					sess.add(obj)
-					sess.flush()
-				else:
-					print("################### USER HAVE NO EMAIL #######################")
+						mailer.send(message)
+						resvalue['letteruid'] = hashlib.md5((templateBody + user.nick + str(datetime.datetime.now())).encode()).hexdigest()
+						em = ExtModel(xcls)
+						obj = xcls()
+						em.set_values(obj, resvalue, req, True)
+						sess.add(obj)
+						sess.flush()
+					else:
+						print("################### USER HAVE NO EMAIL #######################")
 
-		except AttributeError:
-			print("########################## USER NOT IN SUBSCR LIST ###########################")
+			except AttributeError:
+				print("########################## USER NOT IN SUBSCR LIST ###########################")
 
-	return {
-		'do'     : 'close',
-		'reload' : True
-		}
+		return {
+			'do'     : 'close',
+			'reload' : True
+			}
+	return _wizcb_submit_hdl
 
 
 class MailingTemplate(Base):
@@ -245,27 +248,9 @@ class MailingTemplate(Base):
 			'editor_xtype'  : 'tinymce_field',
 			'editor_config' : {
 				'tinyMCEConfig' : {
-					'theme'                             : 'advanced',
-					'skin'                              : 'extjs',
-					'inlinepopups_skin'                 : 'extjs',
-					'theme_advanced_row_height'         : 27,
-					'delta_height'                      : 1,
-					'schema'                            : 'html5',
-					'plugins'                           : 'lists,pagebreak,style,layer,table,save,advhr,advimage,advlink,iespell,inlinepopups,insertdatetime,preview,media,searchreplace,print,contextmenu,paste,directionality,fullscreen,noneditable,visualchars,visualblocks,nonbreaking,xhtmlxtras,template,wordcount,advlist',
-
-					'theme_advanced_buttons1'           : 'bold,italic,underline,strikethrough,|,justifyleft,justifycenter,justifyright,justifyfull,styleselect,formatselect,fontselect,fontsizeselect',
-					'theme_advanced_buttons2'           : 'cut,copy,paste,pastetext,pasteword,|,search,replace,|,bullist,numlist,|,outdent,indent,blockquote,|,undo,redo,|,link,unlink,anchor,image,cleanup,help,code,|,insertdate,inserttime,preview,|,forecolor,backcolor',
-					'theme_advanced_buttons3'           : 'tablecontrols,|,hr,removeformat,visualaid,|,sub,sup,|,charmap,emotions,iespell,media,advhr,|,print,|,ltr,rtl,|,fullscreen',
-					'theme_advanced_buttons4'           : 'insertlayer,moveforward,movebackward,absolute,|,styleprops,|,cite,abbr,acronym,del,ins,attribs,|,visualchars,visualblocks,nonbreaking,template,pagebreak,restoredraft',
-
-					'theme_advanced_toolbar_location'   : 'top',
-					'theme_advanced_toolbar_align'      : 'left',
-					'theme_advanced_statusbar_location' : 'bottom',
-
-					'extended_valid_elements'           : '+tpl[if|elsif|else|for|foreach|switch|case|default]',
-					'custom_elements'                   : '~tpl',
-					'valid_children'                    : '+*[tpl],+tpl[*],+tbody[tpl],+body[tpl],+table[tpl],+tpl[table|tr|tpl|#text]'
-
+					'extended_valid_elements' : '+tpl[if|elsif|else|for|foreach|switch|case|default]',
+					'custom_elements'         : '~tpl',
+					'valid_children'          : '+*[tpl],+tpl[*],+tbody[tpl],+body[tpl],+table[tpl],+tpl[table|tr|tpl|#text]'
 					}
 				}
 			}
@@ -305,7 +290,7 @@ class MailingLog(Base):
 					Step(
 						'user', 'template',
 						id='generic', title=_('Send new mail'),
-						on_submit=_wizcb_maillog_submit
+						on_submit=_wizcb_maillog_submit('MailingLog')
 						)
 					)
 				}
