@@ -49,7 +49,7 @@ from netprofile.db.connection import DBSession
 
 from netprofile_access.models import AccessEntity
 
-from .models import UserDomain, PDNSDomain, PDNSRecord, PDNSTemplateType, PDNSTemplate, PDNSFieldType
+from .models import PDNSDomain, PDNSRecord, PDNSTemplateType, PDNSTemplate, PDNSFieldType
 
 _ = TranslationStringFactory('netprofile_powerdns')
 
@@ -70,7 +70,7 @@ def delete_record(request):
 	sess = DBSession()
 	csrf = request.POST.get('csrf', '')
 	access_user = sess.query(AccessEntity).filter_by(nick=str(request.user)).first()
-	user_domains = [d.id for d in sess.query(PDNSDomain).filter_by(account=str(request.user))]
+	user_domains = [d.id for d in sess.query(PDNSDomain).filter_by(account=str(request.user.id))]
 	
 	if csrf != request.get_csrf():
 		request.session.flash({
@@ -106,7 +106,7 @@ def edit_record(request):
 	sess = DBSession()
 	csrf = request.POST.get('csrf', '')
 	access_user = sess.query(AccessEntity).filter_by(nick=str(request.user)).first()
-	user_domains = [d.id for d in sess.query(PDNSDomain).filter_by(account=str(request.user))]
+	user_domains = [d.id for d in sess.query(PDNSDomain).filter_by(account=str(request.user.id))]
 	
 	if csrf != request.get_csrf():
 		request.session.flash({
@@ -154,28 +154,28 @@ def create_record(request):
 	else:
 		#get fields related to obtained type and create corresponding fields
 		rectype = request.POST.get('type', None)
-		if rectype != "record":
+		if rectype != "record" and rectype != "newdomain":
 			#so we are creating some service, domain, mailserver, etc
 			currentvalues = {}
 			hostname = request.POST.get('hostName', None)
 			currentvalues['name'] = hostname
 			
 			#check if we already have such domain name,
-			#if so, return a warning
-			domain_clash = sess.query(func.count('*'))\
-					.select_from(PDNSDomain)\
-					.filter(PDNSDomain.name == hostname)\
-					.scalar()
-			if domain_clash > 0:
-				request.session.flash({
-					'text' : loc.translate(_('Domain already exists, please add corresponding records manually')),
-					'class' : 'danger'
-					})
-				return HTTPSeeOther(location=request.route_url('pdns.cl.domains'))
+			#if so, return a warning111
+			#domain_clash = sess.query(func.count('*'))\
+			#		.select_from(PDNSDomain)\
+			#		.filter(PDNSDomain.name == hostname)\
+			#		.scalar()
+			#if domain_clash > 0:
+			#	request.session.flash({
+			#		'text' : loc.translate(_('Domain already exists, please add corresponding records manually')),
+			#		'class' : 'danger'
+			#		})
+			#	return HTTPSeeOther(location=request.route_url('pdns.cl.domains'))
 			#if no same domain name warinigs returned, we can continue processing our data
 			#host record
 
-			domaintype = request.POST.get('hosttype', 'NATIVE')
+			#domaintype = request.POST.get('hosttype', 'NATIVE')
 			domainip = request.POST.get('hostValue', None)
 			#if IP-address is not specified, raise a warning
 			if not domainip:
@@ -199,21 +199,7 @@ def create_record(request):
 			#and here we create our something. 
 			#as we have new service type, rectype, we can get all related fields
 
-			#first we create new domain
-
-			newdomain = PDNSDomain(
-				name=hostname, 
-				master='', 
-				dtype=domaintype, 
-				account=request.POST.get('user', None)
-				)
-			sess.add(newdomain)
-
-			#and then the records for this domain, according to the record type
-			#IT WORKS!
-			#WORKING HERE
-			#Now we should revise what kind of fields should we create for every service
-			#also if we have a simple domain what will happen if we decide to add a mailserver to it, for example??
+			newdomain = sess.query(PDNSDomain).filter(PDNSDomain.name==hostname).first()
 			service_template = sess.query(PDNSTemplateType).filter(PDNSTemplateType.name==rectype).join(PDNSTemplate).all()
 			
 			#default values are stored as JSON in the database
@@ -231,7 +217,6 @@ def create_record(request):
 						newname = "{0}.{1}".format(defvalues['prefix'], newname)
 					newrtype = f.field.name
 					
-					#DONE
 					defcontent = defvalues.get('content', None)
 					if defcontent:
 						if not isinstance(defcontent, list):
@@ -243,9 +228,9 @@ def create_record(request):
 							newcontent =".".join(defcontent)
 					else:
 						newcontent = ''
-					#DONE
-					newttl = int(defvalues.get('ttl', 3600))
 
+					newttl = int(defvalues.get('ttl', 3600))
+					
 					newRecord = PDNSRecord(
 						domain = newdomain,
 						name = newname,
@@ -261,7 +246,29 @@ def create_record(request):
 			newrecord = PDNSRecord(domain_id=int(request.POST.get('domainid', None)), name=request.POST.get('name', None), rtype=request.POST.get('rtype', None), content=request.POST.get('content', None), ttl=ttl, prio=prio)
 			sess.add(newrecord)
 			sess.flush()
-		
+		elif rectype == "newdomain":
+			hostname = request.POST.get('hostName', '127.0.0.1')
+			hosttype = request.POST.get('hostType', 'NATIVE')
+			domain_clash = sess.query(func.count('*'))\
+				.select_from(PDNSDomain)\
+				.filter(PDNSDomain.name == hostname)\
+				.scalar()
+			if domain_clash > 0:
+				request.session.flash({
+						'text' : loc.translate(_('Domain already exists, please add corresponding records manually')),
+						'class' : 'danger'
+						})
+				return HTTPSeeOther(location=request.route_url('pdns.cl.domains'))
+
+			newdomain = PDNSDomain(
+				name=hostname, 
+				master='', 
+				dtype=hosttype, 
+				account=request.POST.get('user', None)
+				)
+			sess.add(newdomain)
+			sess.flush()
+			
 	return HTTPSeeOther(location=request.route_url('pdns.cl.domains', _query=(('created', 1),)))
 
 
@@ -292,7 +299,7 @@ def list_domains(request):
 	templates = sess.query(PDNSTemplateType).join(PDNSTemplate).all()
 	
 	access_user = sess.query(AccessEntity).filter_by(nick=str(request.user)).first()
-	user_domains = sess.query(PDNSDomain).filter_by(account=str(request.user))
+	user_domains = sess.query(PDNSDomain).filter_by(account=str(request.user.id))
 	records = []
 	for d in user_domains:
 		recs = sess.query(PDNSRecord).filter_by(domain_id=d.id)
