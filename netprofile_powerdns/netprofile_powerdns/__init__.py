@@ -72,7 +72,7 @@ class Module(ModuleBase):
 	def get_models(self):
 		from netprofile_powerdns import models 
 		return (
-			models.UserDomain,
+			#models.UserDomain,
 			models.PDNSComment,
 			models.PDNSCryptokey,
 			models.PDNSDomainMetadata,

@@ -5,10 +5,12 @@
 ## Domain creation + create from template button
 ## here we should create dynamic buttons, from the data, passed to the template
 ## for the first button we take the first element from templates list  
+## should be corrected - first button should only add a domain, not a service. And in service templates we should add a dropdown for existing domains. 
+## here we should input only domain name and type - NATIVE, MASTER, SLAVE
   <div class="btn-group pull-right"> 
-    <button class="btn btn-primary" data-toggle="modal" data-target="#formModal${templates[0].name.capitalize()}">
+    <button class="btn btn-primary" data-toggle="modal" data-target="#formModalNewDomain">
       <span class="glyphicon glyphicon-plus"></span>
-      ${loc.translate(_("Create "+templates[0].name))}
+      ${loc.translate(_("Add new host "))}
     </button>
 
     <button type="button" class="btn btn-primary dropdown-toggle" data-toggle="dropdown" aria-expanded="false">
@@ -25,17 +27,9 @@
   </div>
 ## domain creation + create from template button end 
 
-##% for t in templates:
-## <p> ${t.name}
-##  % for f in t.template_fields:
-##    ${f.field}
-## </p>
-##  % endfor  
-##% endfor
-
   <h1>${loc.translate(_("My domains"))}</h1>
 
-%if userdomains is None:
+% if userdomains is None:
   <div class="alert alert-warning">
     ${loc.translate(_("You have no domains yet. Add some?"))}
   </div>
@@ -81,7 +75,7 @@
 												      }</strong>?</h4>
 			  <form method="POST" action="${req.route_url("pdns.cl.delete")}" class="form-inline" role="form" id="deleteForm">
 			    <div class="form-group">
-			      <input type="hidden" name="user" id="user" value="${accessuser.nick}"
+			      <input type="hidden" name="user" id="user" value="${accessuser.id}"
 			      <input type="hidden" name="domainid" id="domainid" value="${d.id}">
 			      <input type="hidden" name="recordid" id="recordid" value="${r.id}">
 			      <input type="hidden" name="csrf" value="${req.get_csrf()}" />
@@ -194,7 +188,7 @@
 		  </select>	
 		  
 		  <input type="text" name="hostValue" class="form-control" id="hostValue" value="${d.master}">
-		  <input type="hidden" name="user" id="user" value="${accessuser.nick}">
+		  <input type="hidden" name="user" id="user" value="${accessuser.id}">
 		  <input type="hidden" name="domainid" id="domainid" value="${d.id}">
 		  <input type="hidden" name="type" id="type" value="domain">
 		  <input type="hidden" name="csrf" value="${req.get_csrf()}" />
@@ -223,7 +217,7 @@
               <h4 class="modal-title">${loc.translate(_("Really delete domain"))} <strong>${d}</strong>?</h4>
 	      <form method="POST" action="${req.route_url("pdns.cl.delete")}" class="form-inline" role="form" id="deleteForm">
 		<div class="form-group">
-		  <input type="hidden" name="user" id="user" value="${accessuser.nick}">
+		  <input type="hidden" name="user" id="user" value="${accessuser.id}">
 		  <input type="hidden" name="domainid" id="domainid" value="${d.id}">
 		  <input type="hidden" name="csrf" value="${req.get_csrf()}" />
 		</div>

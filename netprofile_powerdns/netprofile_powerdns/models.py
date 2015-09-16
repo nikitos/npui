@@ -21,7 +21,7 @@
 # <http://www.gnu.org/licenses/>.
 
 __all__ = [
-'UserDomain',
+#'UserDomain',
 'PDNSComment',
 'PDNSCryptokey',
 'PDNSDomainMetadata',
@@ -703,8 +703,8 @@ class PDNSDomain(Base):
 				'show_in_menu'  : 'modules',
 				'menu_order'    : 30,
 				'default_sort'  : ({ 'property': 'name', 'direction': 'ASC' },),
-				'grid_view'     : ('name', 'dtype'),
-				'easy_search'   : ('name', 'master', 'last_check', 'dtype', 'notified_serial'),
+				'grid_view'     : ('name', 'master', 'last_check', 'dtype', 'notified_serial', 'account'),
+				'easy_search'   : ('name', 'master', 'last_check', 'dtype', 'notified_serial', 'account'),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
 				'create_wizard' : SimpleWizard(title=_('Add new DNS domain'))
 			}
@@ -772,10 +772,11 @@ class PDNSDomain(Base):
 		)
 	account = Column(
 		'account',
-		Unicode(40),
+		UInt32(),#Unicode(40),
+		ForeignKey('entities_access.entityid', name='pdns_domains_fk_accessuserid', onupdate='CASCADE'),
 		Comment('Account'),
-		nullable=True,
-		default=None,
+		nullable=False,#True,
+		#default=None,
 		info={
 			'header_string' : _('Account')
 			}
@@ -807,8 +808,8 @@ class PDNSRecord(Base):
 				'show_in_menu'  : 'modules',
 				'menu_order'    : 30,
 				'default_sort'  : ({ 'property': 'name', 'direction': 'ASC' },),
-				'grid_view'     : ('name', 'rtype'),
-				'easy_search'   : ('name', 'master', 'last_check', 'rtype', 'notified_serial'),
+				'grid_view'     : ('name', 'domain', 'rtype', 'content', 'ttl', 'prio', 'change_date', 'ordername'),
+				'easy_search'   : ('name', ),
 				'detail_pane'   : ('netprofile_core.views', 'dpane_simple'),
 				'create_wizard' : SimpleWizard(title=_('Add new DNS record'))
 			}
