@@ -4,6 +4,7 @@
  */
 
 Ext.define('NetProfile.form.field.SimpleMultiModelSelect', {
+    values: [],
     extend: 'Ext.form.field.Tag',
     alias: 'widget.simplemultimodelselect',
     requires: [
@@ -55,4 +56,20 @@ Ext.define('NetProfile.form.field.SimpleMultiModelSelect', {
                     }
             }, this);
     },
+    getValue: function()
+	{
+		return this.values;
+	},
+	setValue: function(val)
+	{
+		var me = this;
+
+		if(!Ext.isArray(val))
+			val = [ val ];
+		me.values = [];
+		Ext.Array.forEach(val, function(v)
+		{
+			me.values.push(v.getId());
+		});
+	},
 });
