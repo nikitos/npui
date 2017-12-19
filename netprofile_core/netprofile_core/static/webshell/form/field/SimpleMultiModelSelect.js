@@ -51,7 +51,7 @@ Ext.define('NetProfile.form.field.SimpleMultiModelSelect', {
                             for (var i = 0; i < recs.length; i++) {
                                     uids.push(recs[i].getId());
                             }
-                            hf.setValue(JSON.stringify(uids));
+                            hf.setValue(uids);
                     }
             }, this);
     },
